@@ -3,10 +3,14 @@ import logging
 import os
 
 from aiogram import Bot, Dispatcher, types, F
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.filters import Command
+from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 from config import config
 from handlers.start import start_router
+from handlers.statistics import stats_router
 
 load_dotenv()
 
@@ -14,10 +18,16 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 # Инициализация бота и диспетчера
-bot = Bot(token=config.BOT_TOKEN)
-dp = Dispatcher()
+bot = Bot(
+    token=config.BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+
 
 dp.include_router(start_router)
+dp.include_router(stats_router)
 
 
 # Главная функция
