@@ -1,17 +1,13 @@
-import os
 import time
-import json
 import requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from config import config
 
 load_dotenv()
 
-API_TOKEN = os.getenv('API_TOKEN')
-STAT_URL = os.getenv('STATISTICS_URL', 'https://statistics-api.wildberries.ru')
-
 headers = {
-    "Authorization": f"Bearer {API_TOKEN}",
+    "Authorization": f"Bearer {config.API_TOKEN}",
     "Content-Type": "application/json"
 }
 
@@ -94,7 +90,7 @@ def get_orders_by_date(date_from, flag=1):
     """
     Получение заказов за конкретную дату (flag=1)
     """
-    url = f"{STAT_URL}/api/v1/supplier/orders"
+    url = f"{config.STAT_URL}/api/v1/supplier/orders"
     params = {
         'dateFrom': date_from,
         'flag': flag  # flag=1 для получения всех заказов за указанную дату
@@ -119,7 +115,7 @@ def get_incomes(date_from=None):
     if date_from is None:
         date_from = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
 
-    url = f"{STAT_URL}/api/v1/supplier/incomes"
+    url = f"{config.STAT_URL}/api/v1/supplier/incomes"
     params = {
         'dateFrom': date_from
     }
@@ -143,7 +139,7 @@ def get_stocks(date_from=None):
     if date_from is None:
         date_from = datetime.now().strftime('%Y-%m-%d')
 
-    url = f"{STAT_URL}/api/v1/supplier/stocks"
+    url = f"{config.STAT_URL}/api/v1/supplier/stocks"
     params = {
         'dateFrom': date_from
     }
@@ -167,7 +163,7 @@ def get_sales(date_from=None, flag=1):
     if date_from is None:
         date_from = datetime.now().strftime('%Y-%m-%d')
 
-    url = f"{STAT_URL}/api/v1/supplier/sales"
+    url = f"{config.STAT_URL}/api/v1/supplier/sales"
     params = {
         'dateFrom': date_from,
         'flag': flag
@@ -322,6 +318,53 @@ def get_24h_orders_stats():
                 continue
 
     return filtered_orders
+
+def get_all_orders_with_progress(date_from, max_requests=10, progress_callback=None):
+    """
+    Получение всех заказов с пагинацией и прогрессом
+    """
+    all_orders = []
+    current_date_from = date_from
+
+    for request_num in range(max_requests):
+        if progress_callback:
+            progress_callback(f"Запрос заказов {request_num + 1}/{max_requests}")
+
+        print(f"📦 Запрос заказов #{request_num + 1} с dateFrom: {current_date_from}")
+
+        url = f"{config.STAT_URL}/api/v1/supplier/orders"
+        params = {
+            'dateFrom': current_date_from,
+            'flag': 0
+        }
+
+        response = make_api_request(url, params, delay=60.0)
+
+        if response.status_code == 200:
+            orders_batch = response.json()
+            print(f"✅ Получено {len(orders_batch)} заказов в этом запросе")
+
+            if not orders_batch:
+                if progress_callback:
+                    progress_callback("Все заказы получены!")
+                break
+
+            all_orders.extend(orders_batch)
+            last_order = orders_batch[-1]
+            current_date_from = last_order['lastChangeDate']
+
+            if len(orders_batch) < 1000:
+                if progress_callback:
+                    progress_callback("Завершаю сбор заказов...")
+                break
+
+        else:
+            if progress_callback:
+                progress_callback("Ошибка при запросе заказов")
+            break
+
+    print(f"📊 Итого получено заказов: {len(all_orders)}")
+    return all_orders
 
 
 def main():
