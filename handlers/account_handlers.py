@@ -256,28 +256,53 @@ async def show_account_stats(message: Message, state: FSMContext, session: Async
 
             # Получаем данные
             orders_count = stats["orders"]["count"]
-            orders_amount = stats["orders"]["amount"]
+            orders_amounts = stats["orders"]["amounts"]
             sales_count = stats["sales"]["count"]
-            sales_amount = stats["sales"]["amount"]
+            sales_amounts = stats["sales"]["amounts"]
 
-            # Форматируем суммы
-            formatted_orders_amount = f"{orders_amount:,.2f} ₽".replace(",", " ").replace(".", ",")
-            formatted_sales_amount = f"{sales_amount:,.2f} ₽".replace(",", " ").replace(".", ",")
+            # Форматируем суммы для заказов
+            formatted_orders_priceWithDisc = f"{orders_amounts['priceWithDisc']:,.2f} ₽".replace(",", " ").replace(".",
+                                                                                                                   ",")
+            formatted_orders_finishedPrice = f"{orders_amounts['finishedPrice']:,.2f} ₽".replace(",", " ").replace(".",
+                                                                                                                   ",")
+            formatted_orders_totalPrice = f"{orders_amounts['totalPrice']:,.2f} ₽".replace(",", " ").replace(".", ",")
+
+            # Форматируем суммы для выкупов
+            formatted_sales_priceWithDisc = f"{sales_amounts['priceWithDisc']:,.2f} ₽".replace(",", " ").replace(".",
+                                                                                                                 ",")
+            formatted_sales_finishedPrice = f"{sales_amounts['finishedPrice']:,.2f} ₽".replace(",", " ").replace(".",
+                                                                                                                 ",")
+            formatted_sales_forPay = f"{sales_amounts['forPay']:,.2f} ₽".replace(",", " ").replace(".", ",")
 
             # Получаем текущую дату
             today = datetime.now().strftime("%d.%m.%Y")
 
+            # Формируем сообщение со статистикой
+            stats_text = f"📊 <b>Статистика: {account_display_name}</b>\n\n"
+            stats_text += f"📅 <b>За сегодня ({today}):</b>\n\n"
+
+            # Статистика заказов
+            stats_text += f"🛒 <b>Заказы:</b>\n"
+            stats_text += f"   📦 Количество: <b>{orders_count}</b>\n"
+            stats_text += f"   💰 Суммы:\n"
+            stats_text += f"      • priceWithDisc: <b>{formatted_orders_priceWithDisc}</b>\n"
+            stats_text += f"      • finishedPrice: <b>{formatted_orders_finishedPrice}</b>\n"
+            stats_text += f"      • totalPrice: <b>{formatted_orders_totalPrice}</b>\n\n"
+
+            # Статистика выкупов
+            stats_text += f"✅ <b>Выкупы:</b>\n"
+            stats_text += f"   📦 Количество: <b>{sales_count}</b>\n"
+            stats_text += f"   💰 Суммы:\n"
+            stats_text += f"      • priceWithDisc: <b>{formatted_sales_priceWithDisc}</b>\n"
+            stats_text += f"      • finishedPrice: <b>{formatted_sales_finishedPrice}</b>\n"
+            stats_text += f"      • forPay: <b>{formatted_sales_forPay}</b>\n\n"
+
+            stats_text += f"<i>Данные обновляются раз в 30 минут</i>"
+
             # УДАЛЯЕМ сообщение о загрузке и отправляем новое с результатами
             await loading_msg.delete()
             await message.answer(
-                f"📊 <b>Статистика: {account_display_name}</b>\n\n"
-                f"📅 <b>За сегодня ({today}):</b>\n\n"
-                f"🛒 <b>Заказы:</b>\n"
-                f"   📦 Количество: <b>{orders_count}</b>\n"
-                f"   💰 Сумма: <b>{formatted_orders_amount}</b>\n\n"
-                f"✅ <b>Выкупы:</b>\n"
-                f"   📦 Количество: <b>{sales_count}</b>\n"
-                f"   💰 Сумма: <b>{formatted_sales_amount}</b>\n\n",
+                stats_text,
                 reply_markup=get_account_management_keyboard()
             )
 
@@ -306,8 +331,6 @@ async def show_account_stats(message: Message, state: FSMContext, session: Async
 
     else:
         await message.answer("❌ Кабинет не найден")
-
-
 
 
 @account_router.message(AccountManagementStates.managing_account, F.text == "✏️ Изменить")

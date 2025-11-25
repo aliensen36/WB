@@ -16,19 +16,18 @@ class WBAPI:
             "Content-Type": "application/json"
         }
 
-    async def get_today_orders_stats(self) -> Tuple[int, float]:
+    async def get_today_orders_stats(self) -> Tuple[int, Dict[str, float]]:
         """
         Получить статистику заказов за сегодня
-        Возвращает: (количество_заказов, суммарная_стоимость)
+        Возвращает: (количество_заказов, {название_поля: сумма})
         """
         try:
-            # Получаем сегодняшнюю дату в формате RFC3339 (Московское время UTC+3)
             today = datetime.now().date()
-            date_from = today.isoformat()  # Формат: YYYY-MM-DD
+            date_from = today.isoformat()
 
             params = {
                 "dateFrom": date_from,
-                "flag": 1  # Получаем все заказы за указанную дату
+                "flag": 1
             }
 
             async with aiohttp.ClientSession() as session:
@@ -59,19 +58,18 @@ class WBAPI:
             logger.error(f"Ошибка при получении статистики заказов: {e}")
             raise ValueError(f"Ошибка при получении данных заказов: {str(e)}")
 
-    async def get_today_sales_stats(self) -> Tuple[int, float]:
+    async def get_today_sales_stats(self) -> Tuple[int, Dict[str, float]]:
         """
         Получить статистику продаж (выкупов) за сегодня
-        Возвращает: (количество_продаж, суммарная_стоимость)
+        Возвращает: (количество_продаж, {название_поля: сумма})
         """
         try:
-            # Получаем сегодняшнюю дату в формате RFC3339 (Московское время UTC+3)
             today = datetime.now().date()
-            date_from = today.isoformat()  # Формат: YYYY-MM-DD
+            date_from = today.isoformat()
 
             params = {
                 "dateFrom": date_from,
-                "flag": 1  # Получаем все продажи за указанную дату
+                "flag": 1
             }
 
             async with aiohttp.ClientSession() as session:
@@ -102,73 +100,84 @@ class WBAPI:
             logger.error(f"Ошибка при получении статистики продаж: {e}")
             raise ValueError(f"Ошибка при получении данных продаж: {str(e)}")
 
-    def _calculate_orders_stats(self, orders: List[Dict]) -> Tuple[int, float]:
+    def _calculate_orders_stats(self, orders: List[Dict]) -> Tuple[int, Dict[str, float]]:
         """
-        Рассчитать статистику из списка заказов
+        Рассчитать статистику из списка заказов по всем финансовым полям
         """
         if not orders:
-            return 0, 0.0
+            return 0, {
+                "priceWithDisc": 0.0,
+                "finishedPrice": 0.0,
+                "totalPrice": 0.0
+            }
 
         total_orders = 0
-        total_amount = 0.0
+        amounts = {
+            "priceWithDisc": 0.0,
+            "finishedPrice": 0.0,
+            "totalPrice": 0.0
+        }
 
         for order in orders:
             # Пропускаем отмененные заказы
             if order.get("isCancel", False):
                 continue
 
-            price_with_disc = order.get("priceWithDisc", 0)
-
-            # Если priceWithDisc не указан, используем finishedPrice
-            if not price_with_disc:
-                price_with_disc = order.get("finishedPrice", 0)
-
             total_orders += 1
-            total_amount += float(price_with_disc)
 
-        return total_orders, total_amount
+            # Суммируем все финансовые поля
+            amounts["priceWithDisc"] += float(order.get("priceWithDisc", 0))
+            amounts["finishedPrice"] += float(order.get("finishedPrice", 0))
+            amounts["totalPrice"] += float(order.get("totalPrice", 0))
 
-    def _calculate_sales_stats(self, sales: List[Dict]) -> Tuple[int, float]:
+        return total_orders, amounts
+
+    def _calculate_sales_stats(self, sales: List[Dict]) -> Tuple[int, Dict[str, float]]:
         """
-        Рассчитать статистику из списка продаж
+        Рассчитать статистику из списка продаж по всем финансовым полям
         """
         if not sales:
-            return 0, 0.0
+            return 0, {
+                "priceWithDisc": 0.0,
+                "finishedPrice": 0.0,
+                "forPay": 0.0
+            }
 
         total_sales = 0
-        total_amount = 0.0
+        amounts = {
+            "priceWithDisc": 0.0,
+            "finishedPrice": 0.0,
+            "forPay": 0.0
+        }
 
         for sale in sales:
             # Продажи с isRealization=true - это выкупы
-            # isRealization=false - это возвраты
-            if sale.get("isRealization", True):  # По умолчанию считаем выкупами
-                price_with_disc = sale.get("priceWithDisc", 0)
-
-                # Если priceWithDisc не указан, используем finishedPrice
-                if not price_with_disc:
-                    price_with_disc = sale.get("finishedPrice", 0)
-
+            if sale.get("isRealization", True):
                 total_sales += 1
-                total_amount += float(price_with_disc)
 
-        return total_sales, total_amount
+                # Суммируем все финансовые поля
+                amounts["priceWithDisc"] += float(sale.get("priceWithDisc", 0))
+                amounts["finishedPrice"] += float(sale.get("finishedPrice", 0))
+                amounts["forPay"] += float(sale.get("forPay", 0))
+
+        return total_sales, amounts
 
     async def get_today_full_stats(self) -> Dict[str, any]:
         """
         Получить полную статистику за сегодня (заказы + продажи)
         """
         try:
-            orders_count, orders_amount = await self.get_today_orders_stats()
-            sales_count, sales_amount = await self.get_today_sales_stats()
+            orders_count, orders_amounts = await self.get_today_orders_stats()
+            sales_count, sales_amounts = await self.get_today_sales_stats()
 
             return {
                 "orders": {
                     "count": orders_count,
-                    "amount": orders_amount
+                    "amounts": orders_amounts
                 },
                 "sales": {
                     "count": sales_count,
-                    "amount": sales_amount
+                    "amounts": sales_amounts
                 }
             }
 
