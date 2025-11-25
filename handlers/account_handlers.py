@@ -257,21 +257,19 @@ async def show_account_stats(message: Message, state: FSMContext, session: Async
             # Получаем данные
             orders_count = stats["orders"]["count"]
             orders_amounts = stats["orders"]["amounts"]
+            orders_quantities = stats["orders"]["quantities"]
             sales_count = stats["sales"]["count"]
             sales_amounts = stats["sales"]["amounts"]
+            sales_quantities = stats["sales"]["quantities"]
 
             # Форматируем суммы для заказов
-            formatted_orders_priceWithDisc = f"{orders_amounts['priceWithDisc']:,.2f} ₽".replace(",", " ").replace(".",
-                                                                                                                   ",")
-            formatted_orders_finishedPrice = f"{orders_amounts['finishedPrice']:,.2f} ₽".replace(",", " ").replace(".",
-                                                                                                                   ",")
+            formatted_orders_priceWithDisc = f"{orders_amounts['priceWithDisc']:,.2f} ₽".replace(",", " ").replace(".", ",")
+            formatted_orders_finishedPrice = f"{orders_amounts['finishedPrice']:,.2f} ₽".replace(",", " ").replace(".", ",")
             formatted_orders_totalPrice = f"{orders_amounts['totalPrice']:,.2f} ₽".replace(",", " ").replace(".", ",")
 
             # Форматируем суммы для выкупов
-            formatted_sales_priceWithDisc = f"{sales_amounts['priceWithDisc']:,.2f} ₽".replace(",", " ").replace(".",
-                                                                                                                 ",")
-            formatted_sales_finishedPrice = f"{sales_amounts['finishedPrice']:,.2f} ₽".replace(",", " ").replace(".",
-                                                                                                                 ",")
+            formatted_sales_priceWithDisc = f"{sales_amounts['priceWithDisc']:,.2f} ₽".replace(",", " ").replace(".", ",")
+            formatted_sales_finishedPrice = f"{sales_amounts['finishedPrice']:,.2f} ₽".replace(",", " ").replace(".", ",")
             formatted_sales_forPay = f"{sales_amounts['forPay']:,.2f} ₽".replace(",", " ").replace(".", ",")
 
             # Получаем текущую дату
@@ -283,7 +281,15 @@ async def show_account_stats(message: Message, state: FSMContext, session: Async
 
             # Статистика заказов
             stats_text += f"🛒 <b>Заказы:</b>\n"
-            stats_text += f"   📦 Количество: <b>{orders_count}</b>\n"
+            stats_text += f"   📦 Количество заказов: <b>{orders_count}</b>\n"
+            stats_text += f"   📊 Количество единиц:\n"
+            stats_text += f"      • Всего единиц: <b>{orders_quantities['total_units']}</b>\n"
+            stats_text += f"      • Активных: <b>{orders_quantities['active_units']}</b>\n"
+            stats_text += f"      • Отмененных: <b>{orders_quantities['cancelled_units']}</b>\n"
+            stats_text += f"   🏷️ Уникальные товары:\n"
+            stats_text += f"      • Артикулов: <b>{orders_quantities['unique_articles']}</b>\n"
+            stats_text += f"      • Номенклатур: <b>{orders_quantities['unique_nmId']}</b>\n"
+            stats_text += f"      • Штрихкодов: <b>{orders_quantities['unique_barcodes']}</b>\n"
             stats_text += f"   💰 Суммы:\n"
             stats_text += f"      • priceWithDisc: <b>{formatted_orders_priceWithDisc}</b>\n"
             stats_text += f"      • finishedPrice: <b>{formatted_orders_finishedPrice}</b>\n"
@@ -291,11 +297,25 @@ async def show_account_stats(message: Message, state: FSMContext, session: Async
 
             # Статистика выкупов
             stats_text += f"✅ <b>Выкупы:</b>\n"
-            stats_text += f"   📦 Количество: <b>{sales_count}</b>\n"
+            stats_text += f"   📦 Количество продаж: <b>{sales_count}</b>\n"
+            stats_text += f"   📊 Количество единиц:\n"
+            stats_text += f"      • Всего единиц: <b>{sales_quantities['total_units']}</b>\n"
+            stats_text += f"      • Выкуплено: <b>{sales_quantities['sales_units']}</b>\n"
+            stats_text += f"      • Возвратов: <b>{sales_quantities['return_units']}</b>\n"
+            stats_text += f"   🏷️ Уникальные товары:\n"
+            stats_text += f"      • Артикулов: <b>{sales_quantities['unique_articles']}</b>\n"
+            stats_text += f"      • Номенклатур: <b>{sales_quantities['unique_nmId']}</b>\n"
+            stats_text += f"      • Штрихкодов: <b>{sales_quantities['unique_barcodes']}</b>\n"
+            stats_text += f"      • Уникальных продаж: <b>{sales_quantities['unique_saleID']}</b>\n"
             stats_text += f"   💰 Суммы:\n"
             stats_text += f"      • priceWithDisc: <b>{formatted_sales_priceWithDisc}</b>\n"
             stats_text += f"      • finishedPrice: <b>{formatted_sales_finishedPrice}</b>\n"
             stats_text += f"      • forPay: <b>{formatted_sales_forPay}</b>\n\n"
+
+            # Расчет конверсии
+            if orders_count > 0:
+                conversion_rate = (sales_count / orders_count) * 100
+                stats_text += f"📈 <b>Конверсия в выкуп:</b> <b>{conversion_rate:.1f}%</b>\n\n"
 
             stats_text += f"<i>Данные обновляются раз в 30 минут</i>"
 
@@ -331,6 +351,7 @@ async def show_account_stats(message: Message, state: FSMContext, session: Async
 
     else:
         await message.answer("❌ Кабинет не найден")
+
 
 
 @account_router.message(AccountManagementStates.managing_account, F.text == "✏️ Изменить")
