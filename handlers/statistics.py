@@ -9,9 +9,9 @@ from aiogram.types import Message
 from FSM.states import StatsStates
 from functions.statistics_f import format_stats_response, format_incomes_response, format_stocks_response
 from keyboards.statistics_kb import get_main_keyboard, get_period_keyboard
-from orders import get_stocks, get_incomes, analyze_sales_stats, get_24h_orders_stats, analyze_orders_stats, \
+from functions.orders import get_stocks, get_incomes, analyze_sales_stats, get_24h_orders_stats, analyze_orders_stats, \
     get_orders_by_date, get_sales, get_all_orders
-from sales import get_all_sales
+from functions.sales import get_all_sales
 
 stats_router = Router()
 

@@ -1,13 +1,18 @@
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, types
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 from config import config
-from handlers.start import start_router
+from database.engine import drop_db, create_db, session_maker
+from handlers.account_handlers import account_router
+from handlers.start_handlers import start_router
 from handlers.statistics import stats_router
+from middlewares.chat_auth import ChatAuthMiddleware
+from middlewares.db import DataBaseSession
+from middlewares.errors import ErrorMiddleware
 
 load_dotenv()
 
@@ -19,33 +24,44 @@ bot = Bot(
     token=config.BOT_TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
+dp = Dispatcher()
 
 
 dp.include_router(start_router)
+dp.include_router(account_router)
 dp.include_router(stats_router)
 
 
-# Главная функция
+async def on_startup(bot):
+    await create_db()
+    print("Бот запущен! https://t.me/WB_API_infobot")
+
+async def on_shutdown(bot):
+    print('\nБот остановлен пользователем')
+
+
 async def main():
     try:
-        print("Бот запущен! https://t.me/WB_API_infobot")
-        await dp.start_polling(bot)
-    except Exception as e:
-        logging.error(f"Ошибка при работе бота: {e}")
-    finally:
-        await shutdown(dp, bot)
+        dp.startup.register(on_startup)
+        dp.shutdown.register(on_shutdown)
 
-async def shutdown(dispatcher: Dispatcher, bot: Bot):
-    await dispatcher.storage.close()
-    await bot.session.close()
+        dp.update.outer_middleware(ErrorMiddleware())  # 1-й
+        dp.update.outer_middleware(ChatAuthMiddleware(admin_chat_id=config.ADMIN_CHAT_ID))  # 2-й
+        dp.update.outer_middleware(DataBaseSession(session_pool=session_maker))  #
+
+        await bot.delete_webhook(drop_pending_updates=True)
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+
+    except KeyboardInterrupt:
+        print("\nБот остановлен пользователем (Ctrl+C)")
+    except Exception as e:
+        logging.error(f"Ошибка при запуске бота: {e}")
+    finally:
+        await bot.session.close()
+
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nБот остановлен пользователем")
-    except Exception as e:
-        logging.error(f"Критическая ошибка: {e}")
-
+        print("Программа завершена")
