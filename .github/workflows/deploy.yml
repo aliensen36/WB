@@ -1,0 +1,35 @@
+name: Deploy Bot to Server
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to production server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        script: |
+          echo "🚀 Starting deployment..."
+          cd /root/WB
+          git pull origin master  # ← И ЗДЕСЬ ТОЖЕ ИЗМЕНИТЕ
+          source venv/bin/activate
+          pip install -r requirements.txt
+          
+          # Копируем config файлы если нужно
+          if [ ! -f config.py ]; then
+            echo "⚠️  config.py not found, please create it manually"
+          fi
+          
+          sudo systemctl restart wb_bot.service
+          echo "✅ Bot deployed successfully!"
+          sudo systemctl status wb_bot.service
