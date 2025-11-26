@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from FSM.account_states import AddAccountStates, AccountManagementStates
 from database.account_manager import AccountManager
 from database.models import SellerAccount
+from functions.wb_api import WBAPI
 from keyboards.account_kb import get_main_accounts_keyboard, get_accounts_keyboard, \
     get_cancel_keyboard, get_account_management_keyboard, get_account_delete_confirm_keyboard
 import logging
@@ -230,7 +231,7 @@ async def show_account_details(message: Message, account: SellerAccount, session
 
 @account_router.message(AccountManagementStates.managing_account, F.text == "📊 Статистика")
 async def show_account_stats(message: Message, state: FSMContext, session: AsyncSession):
-    """Показать статистику кабинета"""
+    """Показать статистику кабинета в требуемом формате"""
     data = await state.get_data()
     account_id = data.get('selected_account_id')
 
@@ -242,82 +243,38 @@ async def show_account_stats(message: Message, state: FSMContext, session: Async
 
         # Показываем сообщение о загрузке
         loading_msg = await message.answer(
-            f"📊 <b>Статистика кабинета: {account_display_name}</b>\n\n"
+            f"📊 <b>Статистика: {account_display_name}</b>\n\n"
             f"🔄 Получение данных...",
             reply_markup=get_account_management_keyboard()
         )
 
         try:
-            # Получаем полную статистику через WB API
-            from functions.wb_api import WBAPI
-
+            # Получаем статистику через WB API
             wb_api = WBAPI(account.api_key)
-            stats = await wb_api.get_today_full_stats()
+            stats = await wb_api.get_today_stats_for_message()
 
             # Получаем данные
-            orders_count = stats["orders"]["count"]
-            orders_amounts = stats["orders"]["amounts"]
-            orders_quantities = stats["orders"]["quantities"]
-            sales_count = stats["sales"]["count"]
-            sales_amounts = stats["sales"]["amounts"]
-            sales_quantities = stats["sales"]["quantities"]
+            orders_quantity = stats["orders"]["quantity"]
+            orders_amount = stats["orders"]["amount"]
+            sales_quantity = stats["sales"]["quantity"]
+            sales_amount = stats["sales"]["amount"]
 
-            # Форматируем суммы для заказов
-            formatted_orders_priceWithDisc = f"{orders_amounts['priceWithDisc']:,.2f} ₽".replace(",", " ").replace(".", ",")
-            formatted_orders_finishedPrice = f"{orders_amounts['finishedPrice']:,.2f} ₽".replace(",", " ").replace(".", ",")
-            formatted_orders_totalPrice = f"{orders_amounts['totalPrice']:,.2f} ₽".replace(",", " ").replace(".", ",")
-
-            # Форматируем суммы для выкупов
-            formatted_sales_priceWithDisc = f"{sales_amounts['priceWithDisc']:,.2f} ₽".replace(",", " ").replace(".", ",")
-            formatted_sales_finishedPrice = f"{sales_amounts['finishedPrice']:,.2f} ₽".replace(",", " ").replace(".", ",")
-            formatted_sales_forPay = f"{sales_amounts['forPay']:,.2f} ₽".replace(",", " ").replace(".", ",")
+            # Форматируем суммы
+            formatted_orders_amount = f"{orders_amount:,.0f} ₽".replace(",", " ").replace(".", ",")
+            formatted_sales_amount = f"{sales_amount:,.2f} ₽".replace(",", " ").replace(".", ",")
 
             # Получаем текущую дату
             today = datetime.now().strftime("%d.%m.%Y")
 
-            # Формируем сообщение со статистикой
-            stats_text = f"📊 <b>Статистика: {account_display_name}</b>\n\n"
-            stats_text += f"📅 <b>За сегодня ({today}):</b>\n\n"
-
-            # Статистика заказов
-            stats_text += f"🛒 <b>Заказы:</b>\n"
-            stats_text += f"   📦 Количество заказов: <b>{orders_count}</b> (gNumber)\n"
-            stats_text += f"   📊 Количество единиц:\n"
-            stats_text += f"      • Всего единиц: <b>{orders_quantities['total_units']}</b> (quantity)\n"
-            stats_text += f"      • Активных: <b>{orders_quantities['active_units']}</b> (isCancel=False)\n"
-            stats_text += f"      • Отмененных: <b>{orders_quantities['cancelled_units']}</b> (isCancel=True)\n"
-            stats_text += f"   🏷️ Уникальные товары:\n"
-            stats_text += f"      • Артикулов: <b>{orders_quantities['unique_articles']}</b> (supplierArticle)\n"
-            stats_text += f"      • Номенклатур: <b>{orders_quantities['unique_nmId']}</b> (nmId)\n"
-            stats_text += f"      • Штрихкодов: <b>{orders_quantities['unique_barcodes']}</b> (barcode)\n"
-            stats_text += f"   💰 Суммы:\n"
-            stats_text += f"      • priceWithDisc: <b>{formatted_orders_priceWithDisc}</b> (priceWithDisc)\n"
-            stats_text += f"      • finishedPrice: <b>{formatted_orders_finishedPrice}</b> (finishedPrice)\n"
-            stats_text += f"      • totalPrice: <b>{formatted_orders_totalPrice}</b> (totalPrice)\n\n"
-
-            # Статистика выкупов
-            stats_text += f"✅ <b>Выкупы:</b>\n"
-            stats_text += f"   📦 Количество продаж: <b>{sales_count}</b> (saleID)\n"
-            stats_text += f"   📊 Количество единиц:\n"
-            stats_text += f"      • Всего единиц: <b>{sales_quantities['total_units']}</b> (quantity)\n"
-            stats_text += f"      • Выкуплено: <b>{sales_quantities['sales_units']}</b> (isRealization=True)\n"
-            stats_text += f"      • Возвратов: <b>{sales_quantities['return_units']}</b> (isRealization=False)\n"
-            stats_text += f"   🏷️ Уникальные товары:\n"
-            stats_text += f"      • Артикулов: <b>{sales_quantities['unique_articles']}</b> (supplierArticle)\n"
-            stats_text += f"      • Номенклатур: <b>{sales_quantities['unique_nmId']}</b> (nmId)\n"
-            stats_text += f"      • Штрихкодов: <b>{sales_quantities['unique_barcodes']}</b> (barcode)\n"
-            stats_text += f"      • Уникальных продаж: <b>{sales_quantities['unique_saleID']}</b> (saleID)\n"
-            stats_text += f"   💰 Суммы:\n"
-            stats_text += f"      • priceWithDisc: <b>{formatted_sales_priceWithDisc}</b> (priceWithDisc)\n"
-            stats_text += f"      • finishedPrice: <b>{formatted_sales_finishedPrice}</b> (finishedPrice)\n"
-            stats_text += f"      • forPay: <b>{formatted_sales_forPay}</b> (forPay)\n\n"
-
-            # Расчет конверсии
-            if orders_count > 0:
-                conversion_rate = (sales_count / orders_count) * 100
-                stats_text += f"📈 <b>Конверсия в выкуп:</b> <b>{conversion_rate:.1f}%</b>\n\n"
-
-            stats_text += f"<i>Данные обновляются раз в 30 минут</i>"
+            # Формируем сообщение в требуемом формате
+            stats_text = "===================\n"
+            stats_text += f"📊 Статистика: {account_display_name}\n\n"
+            stats_text += f"📅 За сегодня ({today})\n\n"
+            stats_text += f"🛒 Заказы\n"
+            stats_text += f"{orders_quantity} шт. на {formatted_orders_amount}\n\n"
+            stats_text += f"✅ Выкупы\n"
+            stats_text += f"{sales_quantity} на {formatted_sales_amount}\n"
+            stats_text += "==================="
 
             # УДАЛЯЕМ сообщение о загрузке и отправляем новое с результатами
             await loading_msg.delete()
@@ -331,8 +288,7 @@ async def show_account_stats(message: Message, state: FSMContext, session: Async
             # УДАЛЯЕМ сообщение о загрузке и отправляем новое с ошибкой
             await loading_msg.delete()
             await message.answer(
-                f"📊 <b>Статистика кабинета: {account_display_name}</b>\n\n"
-                f"❌ <b>Ошибка при получении данных:</b>\n"
+                f"❌ <b>Ошибка при получении статистики:</b>\n"
                 f"{error_message}\n\n"
                 f"<i>Проверьте API ключ и попробуйте позже</i>",
                 reply_markup=get_account_management_keyboard()
@@ -343,7 +299,6 @@ async def show_account_stats(message: Message, state: FSMContext, session: Async
             # УДАЛЯЕМ сообщение о загрузке и отправляем новое с ошибкой
             await loading_msg.delete()
             await message.answer(
-                f"📊 <b>Статистика кабинета: {account_display_name}</b>\n\n"
                 f"❌ <b>Произошла непредвиденная ошибка</b>\n\n"
                 f"<i>Попробуйте позже или проверьте настройки кабинета</i>",
                 reply_markup=get_account_management_keyboard()
@@ -351,6 +306,7 @@ async def show_account_stats(message: Message, state: FSMContext, session: Async
 
     else:
         await message.answer("❌ Кабинет не найден")
+
 
 
 

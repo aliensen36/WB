@@ -16,10 +16,10 @@ class WBAPI:
             "Content-Type": "application/json"
         }
 
-    async def get_today_orders_stats(self) -> Tuple[int, Dict[str, float], Dict[str, int]]:
+    async def get_today_orders_stats(self) -> Tuple[int, float]:
         """
         Получить статистику заказов за сегодня
-        Возвращает: (количество_заказов, {название_поля: сумма}, {название_поля: количество_единиц})
+        Возвращает: (количество_заказов, сумма_по_priceWithDisc)
         """
         try:
             today = datetime.now().date()
@@ -58,10 +58,10 @@ class WBAPI:
             logger.error(f"Ошибка при получении статистики заказов: {e}")
             raise ValueError(f"Ошибка при получении данных заказов: {str(e)}")
 
-    async def get_today_sales_stats(self) -> Tuple[int, Dict[str, float], Dict[str, int]]:
+    async def get_today_sales_stats(self) -> Tuple[int, float]:
         """
         Получить статистику продаж (выкупов) за сегодня
-        Возвращает: (количество_продаж, {название_поля: сумма}, {название_поля: количество_единиц})
+        Возвращает: (количество_продаж, сумма_по_priceWithDisc)
         """
         try:
             today = datetime.now().date()
@@ -100,179 +100,67 @@ class WBAPI:
             logger.error(f"Ошибка при получении статистики продаж: {e}")
             raise ValueError(f"Ошибка при получении данных продаж: {str(e)}")
 
-    def _calculate_orders_stats(self, orders: List[Dict]) -> Tuple[int, Dict[str, float], Dict[str, int]]:
+    def _calculate_orders_stats(self, orders: List[Dict]) -> Tuple[int, float]:
         """
-        Рассчитать статистику из списка заказов по всем финансовым полям и количеству единиц
+        Рассчитать статистику из списка заказов
+        Считает количество заказов по quantity и сумму по priceWithDisc
         """
         if not orders:
-            return 0, {
-                "priceWithDisc": 0.0,
-                "finishedPrice": 0.0,
-                "totalPrice": 0.0
-            }, {
-                "total_units": 0,
-                "active_units": 0,
-                "cancelled_units": 0,
-                "unique_articles": 0,
-                "unique_nmId": 0,
-                "unique_barcodes": 0
-            }
+            return 0, 0.0
 
-        total_orders = 0
-        amounts = {
-            "priceWithDisc": 0.0,
-            "finishedPrice": 0.0,
-            "totalPrice": 0.0
-        }
-
-        # Счетчики количества единиц товара
-        quantities = {
-            "total_units": 0,  # Всего единиц товара в заказах
-            "active_units": 0,  # Активные (не отмененные) единицы
-            "cancelled_units": 0,  # Отмененные единицы
-            "unique_articles": 0,  # Уникальные артикулы продавца
-            "unique_nmId": 0,  # Уникальные nmId
-            "unique_barcodes": 0  # Уникальные штрихкоды
-        }
-
-        # Множества для подсчета уникальных значений
-        unique_articles = set()
-        unique_nmId = set()
-        unique_barcodes = set()
+        total_quantity = 0
+        total_amount = 0.0
 
         for order in orders:
-            # Считаем все единицы товара
-            quantities["total_units"] += 1
+            # Суммируем quantity для каждого заказа
+            quantity = order.get("quantity", 1)
+            total_quantity += quantity
 
-            # Заполняем уникальные значения
-            if supplier_article := order.get("supplierArticle"):
-                unique_articles.add(supplier_article)
-            if nm_id := order.get("nmId"):
-                unique_nmId.add(nm_id)
-            if barcode := order.get("barcode"):
-                unique_barcodes.add(barcode)
+            # Суммируем priceWithDisc для неотмененных заказов
+            if not order.get("isCancel", False):
+                total_amount += float(order.get("priceWithDisc", 0)) * quantity
 
-            # Обрабатываем статус заказа
-            if order.get("isCancel", False):
-                quantities["cancelled_units"] += 1
-                continue  # Пропускаем отмененные заказы для финансовых расчетов
+        return total_quantity, total_amount
 
-            # Активные заказы
-            total_orders += 1
-            quantities["active_units"] += 1
-
-            # Суммируем все финансовые поля
-            amounts["priceWithDisc"] += float(order.get("priceWithDisc", 0))
-            amounts["finishedPrice"] += float(order.get("finishedPrice", 0))
-            amounts["totalPrice"] += float(order.get("totalPrice", 0))
-
-        # Заполняем счетчики уникальных значений
-        quantities["unique_articles"] = len(unique_articles)
-        quantities["unique_nmId"] = len(unique_nmId)
-        quantities["unique_barcodes"] = len(unique_barcodes)
-
-        return total_orders, amounts, quantities
-
-    def _calculate_sales_stats(self, sales: List[Dict]) -> Tuple[int, Dict[str, float], Dict[str, int]]:
+    def _calculate_sales_stats(self, sales: List[Dict]) -> Tuple[int, float]:
         """
-        Рассчитать статистику из списка продаж по всем финансовым полям и количеству единиц
+        Рассчитать статистику из списка продаж
+        Считает количество выкупов по quantity (только isRealization=True) и сумму по priceWithDisc
         """
         if not sales:
-            return 0, {
-                "priceWithDisc": 0.0,
-                "finishedPrice": 0.0,
-                "forPay": 0.0
-            }, {
-                "total_units": 0,
-                "sales_units": 0,
-                "return_units": 0,
-                "unique_articles": 0,
-                "unique_nmId": 0,
-                "unique_barcodes": 0,
-                "unique_saleID": 0
-            }
+            return 0, 0.0
 
-        total_sales = 0
-        amounts = {
-            "priceWithDisc": 0.0,
-            "finishedPrice": 0.0,
-            "forPay": 0.0
-        }
-
-        # Счетчики количества единиц товара
-        quantities = {
-            "total_units": 0,  # Всего единиц товара
-            "sales_units": 0,  # Выкупленные единицы
-            "return_units": 0,  # Возвращенные единицы
-            "unique_articles": 0,  # Уникальные артикулы продавца
-            "unique_nmId": 0,  # Уникальные nmId
-            "unique_barcodes": 0,  # Уникальные штрихкоды
-            "unique_saleID": 0  # Уникальные идентификаторы продаж
-        }
-
-        # Множества для подсчета уникальных значений
-        unique_articles = set()
-        unique_nmId = set()
-        unique_barcodes = set()
-        unique_saleID = set()
+        total_quantity = 0
+        total_amount = 0.0
 
         for sale in sales:
-            # Считаем все единицы товара
-            quantities["total_units"] += 1
-
-            # Заполняем уникальные значения
-            if supplier_article := sale.get("supplierArticle"):
-                unique_articles.add(supplier_article)
-            if nm_id := sale.get("nmId"):
-                unique_nmId.add(nm_id)
-            if barcode := sale.get("barcode"):
-                unique_barcodes.add(barcode)
-            if sale_id := sale.get("saleID"):
-                unique_saleID.add(sale_id)
-
-            # Обрабатываем статус продажи
+            # Считаем только выкупы (isRealization=True)
             if sale.get("isRealization", True):
-                # Выкупленные товары
-                total_sales += 1
-                quantities["sales_units"] += 1
+                quantity = sale.get("quantity", 1)
+                total_quantity += quantity
+                total_amount += float(sale.get("priceWithDisc", 0)) * quantity
 
-                # Суммируем все финансовые поля
-                amounts["priceWithDisc"] += float(sale.get("priceWithDisc", 0))
-                amounts["finishedPrice"] += float(sale.get("finishedPrice", 0))
-                amounts["forPay"] += float(sale.get("forPay", 0))
-            else:
-                # Возвраты
-                quantities["return_units"] += 1
+        return total_quantity, total_amount
 
-        # Заполняем счетчики уникальных значений
-        quantities["unique_articles"] = len(unique_articles)
-        quantities["unique_nmId"] = len(unique_nmId)
-        quantities["unique_barcodes"] = len(unique_barcodes)
-        quantities["unique_saleID"] = len(unique_saleID)
-
-        return total_sales, amounts, quantities
-
-    async def get_today_full_stats(self) -> Dict[str, any]:
+    async def get_today_stats_for_message(self) -> Dict[str, any]:
         """
-        Получить полную статистику за сегодня (заказы + продажи)
+        Получить статистику за сегодня в формате для сообщения
         """
         try:
-            orders_count, orders_amounts, orders_quantities = await self.get_today_orders_stats()
-            sales_count, sales_amounts, sales_quantities = await self.get_today_sales_stats()
+            orders_quantity, orders_amount = await self.get_today_orders_stats()
+            sales_quantity, sales_amount = await self.get_today_sales_stats()
 
             return {
                 "orders": {
-                    "count": orders_count,
-                    "amounts": orders_amounts,
-                    "quantities": orders_quantities
+                    "quantity": orders_quantity,
+                    "amount": orders_amount
                 },
                 "sales": {
-                    "count": sales_count,
-                    "amounts": sales_amounts,
-                    "quantities": sales_quantities
+                    "quantity": sales_quantity,
+                    "amount": sales_amount
                 }
             }
 
         except Exception as e:
-            logger.error(f"Ошибка при получении полной статистики: {e}")
+            logger.error(f"Ошибка при получении статистики: {e}")
             raise
