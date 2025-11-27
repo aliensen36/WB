@@ -120,12 +120,6 @@ async def show_all_accounts_stats(message: Message, session: AsyncSession):
         if rate_limited_accounts > 0:
             stats_text += "💡 <i>Некоторые данные не получены из-за ограничений API. Попробуйте позже.</i>"
 
-        # Финальное сообщение о результате
-        if successful_accounts == 0:
-            stats_text += f"\n⚠️ <i>Не удалось получить данные ни по одному магазину</i>"
-        else:
-            stats_text += f"\n<i>Получено данных: {successful_accounts}/{len(all_accounts)} магазинов</i>"
-
         await loading_msg.delete()
         await message.answer(stats_text, reply_markup=get_main_keyboard())
 
