@@ -17,97 +17,183 @@ class WBAPI:
             "Content-Type": "application/json"
         }
 
-    async def get_today_orders_stats(self) -> Tuple[int, float]:
+    async def get_today_orders_stats(self, max_retries: int = 5) -> Tuple[int, float]:
         """
-        Получить статистику заказов за сегодня
-        Возвращает: (количество_заказов, сумма_по_priceWithDisc)
+        Получить статистику заказов за сегодня с повторными попытками
         """
-        try:
-            today = datetime.now().date()
-            date_from = today.isoformat()
+        last_error = None
 
-            params = {
-                "dateFrom": date_from,
-                "flag": 1
-            }
+        for attempt in range(max_retries):
+            try:
+                today = datetime.now().date()
+                date_from = today.isoformat()
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                        f"{self.base_url}/api/v1/supplier/orders",
-                        headers=self.headers,
-                        params=params,
-                        timeout=30
-                ) as response:
+                params = {
+                    "dateFrom": date_from,
+                    "flag": 1
+                }
 
-                    if response.status == 200:
-                        orders = await response.json()
-                        return self._calculate_orders_stats(orders)
+                logger.info(f"Запрос заказов (попытка {attempt + 1}/{max_retries})")
 
-                    elif response.status == 401:
-                        raise ValueError("Неверный API ключ")
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                            f"{self.base_url}/api/v1/supplier/orders",
+                            headers=self.headers,
+                            params=params,
+                            timeout=30
+                    ) as response:
 
-                    elif response.status == 429:
-                        raise ValueError("Слишком много запросов")
+                        logger.info(f"Статус ответа заказов: {response.status}")
 
-                    else:
-                        raise ValueError("Ошибка сервера")
+                        if response.status == 200:
+                            orders = await response.json()
+                            logger.info(f"Успешно получено заказов: {len(orders)}")
+                            return self._calculate_orders_stats(orders)
 
-        except asyncio.TimeoutError:
-            raise ValueError("Таймаут запроса")
-        except Exception as e:
-            # Если это уже наша ошибка - пробрасываем как есть
-            if str(e) in ["Неверный API ключ", "Слишком много запросов", "Таймаут запроса", "Ошибка сервера"]:
-                raise
-            # Для остальных - общее сообщение
-            raise ValueError("Ошибка подключения")
+                        elif response.status == 401:
+                            logger.error("Ошибка 401: Неверный API ключ")
+                            raise ValueError("Неверный API ключ")
 
-    async def get_today_sales_stats(self) -> Tuple[int, float]:
+                        elif response.status == 429:
+                            logger.warning(f"Превышен лимит запросов (попытка {attempt + 1})")
+                            last_error = "Превышен лимит запросов"
+                            # Увеличиваем задержку с каждой попыткой
+                            wait_time = (attempt + 1) * 30  # 30, 60, 90, 120, 150 секунд
+                            logger.info(f"Ждем {wait_time} секунд перед повторной попыткой")
+                            await asyncio.sleep(wait_time)
+                            continue
+
+                        else:
+                            error_text = await response.text()
+                            logger.error(f"Ошибка API заказов: {response.status}")
+                            last_error = "Ошибка сервера"
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(30)
+                                continue
+                            else:
+                                raise ValueError("Ошибка сервера")
+
+            except asyncio.TimeoutError:
+                logger.warning(f"Таймаут запроса заказов (попытка {attempt + 1})")
+                last_error = "Таймаут запроса"
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(30)
+                    continue
+                else:
+                    raise ValueError("Таймаут запроса")
+
+            except ValueError as e:
+                error_msg = str(e)
+                # Если это неисправимые ошибки - не повторяем
+                if error_msg in ["Неверный API ключ"]:
+                    raise
+                last_error = error_msg
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(30)
+                    continue
+                else:
+                    raise
+
+            except Exception as e:
+                logger.warning(f"Неожиданная ошибка при получении заказов (попытка {attempt + 1}): {e}")
+                last_error = "Ошибка подключения"
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(30)
+                    continue
+                else:
+                    raise ValueError("Ошибка подключения")
+
+        # Если дошли досюда - все попытки исчерпаны
+        raise ValueError(last_error or "Не удалось получить данные после всех попыток")
+
+    async def get_today_sales_stats(self, max_retries: int = 5) -> Tuple[int, float]:
         """
-        Получить статистику продаж (выкупов) за сегодня
-        Возвращает: (количество_продаж, сумма_по_priceWithDisc)
+        Получить статистику продаж за сегодня с повторными попытками
         """
-        try:
-            today = datetime.now().date()
-            date_from = today.isoformat()
+        last_error = None
 
-            params = {
-                "dateFrom": date_from,
-                "flag": 1
-            }
+        for attempt in range(max_retries):
+            try:
+                today = datetime.now().date()
+                date_from = today.isoformat()
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                        f"{self.base_url}/api/v1/supplier/sales",
-                        headers=self.headers,
-                        params=params,
-                        timeout=30
-                ) as response:
+                params = {
+                    "dateFrom": date_from,
+                    "flag": 1
+                }
 
-                    if response.status == 200:
-                        sales = await response.json()
-                        return self._calculate_sales_stats(sales)
+                logger.info(f"Запрос продаж (попытка {attempt + 1}/{max_retries})")
 
-                    elif response.status == 401:
-                        raise ValueError("Неверный API ключ")
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                            f"{self.base_url}/api/v1/supplier/sales",
+                            headers=self.headers,
+                            params=params,
+                            timeout=30
+                    ) as response:
 
-                    elif response.status == 429:
-                        raise ValueError("Слишком много запросов")
+                        logger.info(f"Статус ответа продаж: {response.status}")
 
-                    else:
-                        raise ValueError("Ошибка сервера")
+                        if response.status == 200:
+                            sales = await response.json()
+                            logger.info(f"Успешно получено продаж: {len(sales)}")
+                            return self._calculate_sales_stats(sales)
 
-        except asyncio.TimeoutError:
-            raise ValueError("Таймаут запроса")
-        except Exception as e:
-            if str(e) in ["Неверный API ключ", "Слишком много запросов", "Таймаут запроса", "Ошибка сервера"]:
-                raise
-            raise ValueError("Ошибка подключения")
+                        elif response.status == 401:
+                            logger.error("Ошибка 401: Неверный API ключ")
+                            raise ValueError("Неверный API ключ")
+
+                        elif response.status == 429:
+                            logger.warning(f"Превышен лимит запросов (попытка {attempt + 1})")
+                            last_error = "Превышен лимит запросов"
+                            wait_time = (attempt + 1) * 30
+                            logger.info(f"Ждем {wait_time} секунд перед повторной попыткой")
+                            await asyncio.sleep(wait_time)
+                            continue
+
+                        else:
+                            error_text = await response.text()
+                            logger.error(f"Ошибка API продаж: {response.status}")
+                            last_error = "Ошибка сервера"
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(30)
+                                continue
+                            else:
+                                raise ValueError("Ошибка сервера")
+
+            except asyncio.TimeoutError:
+                logger.warning(f"Таймаут запроса продаж (попытка {attempt + 1})")
+                last_error = "Таймаут запроса"
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(30)
+                    continue
+                else:
+                    raise ValueError("Таймаут запроса")
+
+            except ValueError as e:
+                error_msg = str(e)
+                if error_msg in ["Неверный API ключ"]:
+                    raise
+                last_error = error_msg
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(30)
+                    continue
+                else:
+                    raise
+
+            except Exception as e:
+                logger.warning(f"Неожиданная ошибка при получении продаж (попытка {attempt + 1}): {e}")
+                last_error = "Ошибка подключения"
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(30)
+                    continue
+                else:
+                    raise ValueError("Ошибка подключения")
+
+        raise ValueError(last_error or "Не удалось получить данные после всех попыток")
 
     def _calculate_orders_stats(self, orders: List[Dict]) -> Tuple[int, float]:
-        """
-        Рассчитать статистику из списка заказов
-        Считает количество заказов по quantity и сумму по priceWithDisc
-        """
+        """Рассчитать статистику из списка заказов"""
         if not orders:
             logger.info("Нет заказов за сегодня")
             return 0, 0.0
@@ -116,22 +202,17 @@ class WBAPI:
         total_amount = 0.0
 
         for order in orders:
-            # Суммируем quantity для каждого заказа
             quantity = order.get("quantity", 1)
             total_quantity += quantity
 
-            # Суммируем priceWithDisc для неотмененных заказов
             if not order.get("isCancel", False):
                 total_amount += float(order.get("priceWithDisc", 0)) * quantity
 
-        logger.info(f"Рассчитано заказов: quantity={total_quantity}, amount={total_amount}")
+        logger.info(f"Рассчитано заказов: {total_quantity} шт. на {total_amount} ₽")
         return total_quantity, total_amount
 
     def _calculate_sales_stats(self, sales: List[Dict]) -> Tuple[int, float]:
-        """
-        Рассчитать статистику из списка продаж
-        Считает количество выкупов по quantity (только isRealization=True) и сумму по priceWithDisc
-        """
+        """Рассчитать статистику из списка продаж"""
         if not sales:
             logger.info("Нет продаж за сегодня")
             return 0, 0.0
@@ -140,27 +221,26 @@ class WBAPI:
         total_amount = 0.0
 
         for sale in sales:
-            # Считаем только выкупы (isRealization=True)
             if sale.get("isRealization", True):
                 quantity = sale.get("quantity", 1)
                 total_quantity += quantity
                 total_amount += float(sale.get("priceWithDisc", 0)) * quantity
 
-        logger.info(f"Рассчитано продаж: quantity={total_quantity}, amount={total_amount}")
+        logger.info(f"Рассчитано продаж: {total_quantity} шт. на {total_amount} ₽")
         return total_quantity, total_amount
 
     async def get_today_stats_for_message(self) -> Dict[str, any]:
         """
-        Получить статистику за сегодня с задержками
+        Получить статистику за сегодня с задержками и повторными попытками
         """
         try:
-            # Запрос заказов
+            # Запрос заказов с повторными попытками
             orders_quantity, orders_amount = await self.get_today_orders_stats()
 
-            # Задержка между запросами (1 секунда)
-            await asyncio.sleep(1)
+            # Задержка между запросами
+            await asyncio.sleep(2)
 
-            # Запрос продаж
+            # Запрос продаж с повторными попытками
             sales_quantity, sales_amount = await self.get_today_sales_stats()
 
             return {

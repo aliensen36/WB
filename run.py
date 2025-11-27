@@ -7,6 +7,7 @@ from aiogram.enums import ParseMode
 from dotenv import load_dotenv
 from config import config
 from database.engine import drop_db, create_db, session_maker
+from functions.scheduler import StatisticsScheduler
 from functions.set_bot_commands import set_bot_commands
 from handlers.account_handlers import account_router
 from handlers.settings_handlers import settings_router
@@ -34,10 +35,19 @@ dp.include_router(account_router)
 dp.include_router(statistics_router)
 dp.include_router(settings_router)
 
+# Создаем планировщик
+scheduler = StatisticsScheduler(bot, session_maker)
+
+
 async def on_startup(bot):
     await create_db()
     await set_bot_commands(bot)
     print("Бот запущен! https://t.me/WB_API_infobot")
+
+    # Запускаем планировщик отчетов для админа
+    asyncio.create_task(scheduler.start_scheduler())
+    print("Планировщик отчетов запущен")
+
 
 async def on_shutdown(bot):
     print('\nБот остановлен пользователем')
