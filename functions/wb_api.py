@@ -31,8 +31,6 @@ class WBAPI:
                 "flag": 1
             }
 
-            logger.info(f"Запрос заказов для даты: {date_from}")
-
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                         f"{self.base_url}/api/v1/supplier/orders",
@@ -41,32 +39,27 @@ class WBAPI:
                         timeout=30
                 ) as response:
 
-                    logger.info(f"Статус ответа заказов: {response.status}")
-
                     if response.status == 200:
                         orders = await response.json()
-                        logger.info(f"Получено заказов: {len(orders)}")
                         return self._calculate_orders_stats(orders)
 
                     elif response.status == 401:
-                        logger.error("Ошибка 401: Неверный API ключ")
                         raise ValueError("Неверный API ключ")
 
                     elif response.status == 429:
-                        logger.error("Ошибка 429: Слишком много запросов")
-                        raise ValueError("Слишком много запросов. Попробуйте позже")
+                        raise ValueError("Слишком много запросов")
 
                     else:
-                        error_text = await response.text()
-                        logger.error(f"Ошибка API заказов: {response.status} - {error_text}")
-                        raise ValueError(f"Ошибка API заказов: {response.status} - {error_text}")
+                        raise ValueError("Ошибка сервера")
 
         except asyncio.TimeoutError:
-            logger.error("Таймаут при запросе заказов")
-            raise ValueError("Таймаут при запросе заказов к WB API")
+            raise ValueError("Таймаут запроса")
         except Exception as e:
-            logger.error(f"Ошибка при получении статистики заказов: {e}")
-            raise ValueError(f"Ошибка при получении данных заказов: {str(e)}")
+            # Если это уже наша ошибка - пробрасываем как есть
+            if str(e) in ["Неверный API ключ", "Слишком много запросов", "Таймаут запроса", "Ошибка сервера"]:
+                raise
+            # Для остальных - общее сообщение
+            raise ValueError("Ошибка подключения")
 
     async def get_today_sales_stats(self) -> Tuple[int, float]:
         """
@@ -82,8 +75,6 @@ class WBAPI:
                 "flag": 1
             }
 
-            logger.info(f"Запрос продаж для даты: {date_from}")
-
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                         f"{self.base_url}/api/v1/supplier/sales",
@@ -92,32 +83,25 @@ class WBAPI:
                         timeout=30
                 ) as response:
 
-                    logger.info(f"Статус ответа продаж: {response.status}")
-
                     if response.status == 200:
                         sales = await response.json()
-                        logger.info(f"Получено продаж: {len(sales)}")
                         return self._calculate_sales_stats(sales)
 
                     elif response.status == 401:
-                        logger.error("Ошибка 401: Неверный API ключ")
                         raise ValueError("Неверный API ключ")
 
                     elif response.status == 429:
-                        logger.error("Ошибка 429: Слишком много запросов")
-                        raise ValueError("Слишком много запросов. Попробуйте позже")
+                        raise ValueError("Слишком много запросов")
 
                     else:
-                        error_text = await response.text()
-                        logger.error(f"Ошибка API продаж: {response.status} - {error_text}")
-                        raise ValueError(f"Ошибка API продаж: {response.status} - {error_text}")
+                        raise ValueError("Ошибка сервера")
 
         except asyncio.TimeoutError:
-            logger.error("Таймаут при запросе продаж")
-            raise ValueError("Таймаут при запросе продаж к WB API")
+            raise ValueError("Таймаут запроса")
         except Exception as e:
-            logger.error(f"Ошибка при получении статистики продаж: {e}")
-            raise ValueError(f"Ошибка при получении данных продаж: {str(e)}")
+            if str(e) in ["Неверный API ключ", "Слишком много запросов", "Таймаут запроса", "Ошибка сервера"]:
+                raise
+            raise ValueError("Ошибка подключения")
 
     def _calculate_orders_stats(self, orders: List[Dict]) -> Tuple[int, float]:
         """
@@ -167,23 +151,22 @@ class WBAPI:
 
     async def get_today_stats_for_message(self) -> Dict[str, any]:
         """
-        Получить статистику за сегодня в формате для сообщения
+        Получить статистику за сегодня с задержками
         """
         try:
+            # Запрос заказов
             orders_quantity, orders_amount = await self.get_today_orders_stats()
+
+            # Задержка между запросами (1 секунда)
+            await asyncio.sleep(1)
+
+            # Запрос продаж
             sales_quantity, sales_amount = await self.get_today_sales_stats()
 
             return {
-                "orders": {
-                    "quantity": orders_quantity,
-                    "amount": orders_amount
-                },
-                "sales": {
-                    "quantity": sales_quantity,
-                    "amount": sales_amount
-                }
+                "orders": {"quantity": orders_quantity, "amount": orders_amount},
+                "sales": {"quantity": sales_quantity, "amount": sales_amount}
             }
-
         except Exception as e:
             logger.error(f"Ошибка при получении статистики: {e}")
             raise

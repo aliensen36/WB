@@ -1,4 +1,5 @@
 # statistics_handlers.py
+import asyncio
 from aiogram import Router, F
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,6 @@ statistics_router = Router()
 async def show_all_accounts_stats(message: Message, session: AsyncSession):
     """Показать статистику всех магазинов"""
 
-    # Показываем сообщение о загрузке
     loading_msg = await message.answer(
         "📊 <b>Получение статистики...</b>\n\n"
         "🔄 Загружаем данные по всем магазинам...",
@@ -37,21 +37,22 @@ async def show_all_accounts_stats(message: Message, session: AsyncSession):
             )
             return
 
-        # Получаем текущую дату
         today = datetime.now().strftime("%d.%m.%Y")
-
-        # Формируем общее сообщение со статистикой всех магазинов
         stats_text = f"📊 <b>Статистика всех магазинов</b>\n\n"
         stats_text += f"📅 За сегодня (<b>{today}</b>)\n\n"
 
         successful_accounts = 0
-        failed_accounts = 0
+        rate_limited_accounts = 0
 
-        # Собираем статистику по каждому магазину
-        for account in all_accounts:
+        # Добавляем задержки между запросами к разным магазинам
+        for i, account in enumerate(all_accounts):
             account_display_name = account.account_name or f"Магазин {account.id}"
 
             try:
+                # Задержка между запросами к разным аккаунтам (2 секунды)
+                if i > 0:
+                    await asyncio.sleep(2)
+
                 wb_api = WBAPI(account.api_key)
                 stats = await wb_api.get_today_stats_for_message()
 
@@ -60,11 +61,9 @@ async def show_all_accounts_stats(message: Message, session: AsyncSession):
                 sales_quantity = stats["sales"]["quantity"]
                 sales_amount = stats["sales"]["amount"]
 
-                # Форматируем суммы
                 formatted_orders_amount = f"{orders_amount:,.0f} ₽".replace(",", " ").replace(".", ",")
                 formatted_sales_amount = f"{sales_amount:,.2f} ₽".replace(",", " ").replace(".", ",")
 
-                # Добавляем статистику магазина в общее сообщение
                 stats_text += f"<b>{account_display_name}</b>\n"
                 stats_text += f"🛒 Заказы: <b>{orders_quantity}</b> шт. на <b>{formatted_orders_amount}</b>\n"
                 stats_text += f"📈 Выкупы: <b>{sales_quantity}</b> шт. на <b>{formatted_sales_amount}</b>\n\n"
@@ -72,36 +71,32 @@ async def show_all_accounts_stats(message: Message, session: AsyncSession):
                 successful_accounts += 1
 
             except Exception as e:
-                logger.error(f"Ошибка при получении статистики для {account_display_name}: {str(e)}")
-                # Добавляем более детальную информацию об ошибке
                 error_message = str(e)
+
+                # Извлекаем только конкретную причину ошибки
                 if "Неверный API ключ" in error_message:
-                    detailed_error = "Неверный API ключ"
+                    display_error = "Неверный API ключ"
+                elif "Слишком много запросов" in error_message or "429" in error_message:
+                    display_error = "Превышен лимит запросов"
+                    rate_limited_accounts += 1
                 elif "Таймаут" in error_message:
-                    detailed_error = "Таймаут запроса"
-                elif "Слишком много запросов" in error_message:
-                    detailed_error = "Превышен лимит запросов"
-                elif "401" in error_message:
-                    detailed_error = "Ошибка авторизации (401)"
-                elif "429" in error_message:
-                    detailed_error = "Слишком много запросов (429)"
+                    display_error = "Таймаут запроса"
                 else:
-                    detailed_error = f"Ошибка: {error_message[:50]}..." if len(
-                        error_message) > 50 else f"Ошибка: {error_message}"
+                    # Для всех остальных ошибок показываем общее сообщение
+                    display_error = "Ошибка подключения"
 
                 stats_text += f"<b>{account_display_name}</b>\n"
-                stats_text += f"❌ {detailed_error}\n\n"
-                failed_accounts += 1
+                stats_text += f"❌ {display_error}\n\n"
 
-        # УДАЛЯЕМ сообщение о загрузке и отправляем новое с результатами
+        # Добавляем подсказку только если есть ошибки лимита
+        if rate_limited_accounts > 0:
+            stats_text += "💡 <i>При превышении лимита повторите запрос через 1-2 минуты</i>"
+
         await loading_msg.delete()
-        await message.answer(
-            stats_text,
-            reply_markup=get_main_keyboard()
-        )
+        await message.answer(stats_text, reply_markup=get_main_keyboard())
 
     except Exception as e:
-        logger.error(f"Неожиданная ошибка при получении статистики: {e}")
+        logger.error(f"Неожиданная ошибка: {e}")
         await loading_msg.delete()
         await message.answer(
             "❌ <b>Произошла непредвиденная ошибка</b>\n\n"
