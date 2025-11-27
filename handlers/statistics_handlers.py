@@ -1,5 +1,4 @@
 # statistics_handlers.py
-
 from aiogram import Router, F
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,6 +44,9 @@ async def show_all_accounts_stats(message: Message, session: AsyncSession):
         stats_text = f"📊 <b>Статистика всех магазинов</b>\n\n"
         stats_text += f"📅 За сегодня (<b>{today}</b>)\n\n"
 
+        successful_accounts = 0
+        failed_accounts = 0
+
         # Собираем статистику по каждому магазину
         for account in all_accounts:
             account_display_name = account.account_name or f"Магазин {account.id}"
@@ -67,10 +69,29 @@ async def show_all_accounts_stats(message: Message, session: AsyncSession):
                 stats_text += f"🛒 Заказы: <b>{orders_quantity}</b> шт. на <b>{formatted_orders_amount}</b>\n"
                 stats_text += f"📈 Выкупы: <b>{sales_quantity}</b> шт. на <b>{formatted_sales_amount}</b>\n\n"
 
+                successful_accounts += 1
+
             except Exception as e:
-                logger.error(f"Ошибка при получении статистики для {account_display_name}: {e}")
+                logger.error(f"Ошибка при получении статистики для {account_display_name}: {str(e)}")
+                # Добавляем более детальную информацию об ошибке
+                error_message = str(e)
+                if "Неверный API ключ" in error_message:
+                    detailed_error = "Неверный API ключ"
+                elif "Таймаут" in error_message:
+                    detailed_error = "Таймаут запроса"
+                elif "Слишком много запросов" in error_message:
+                    detailed_error = "Превышен лимит запросов"
+                elif "401" in error_message:
+                    detailed_error = "Ошибка авторизации (401)"
+                elif "429" in error_message:
+                    detailed_error = "Слишком много запросов (429)"
+                else:
+                    detailed_error = f"Ошибка: {error_message[:50]}..." if len(
+                        error_message) > 50 else f"Ошибка: {error_message}"
+
                 stats_text += f"<b>{account_display_name}</b>\n"
-                stats_text += f"❌ Ошибка при получении данных\n\n"
+                stats_text += f"❌ {detailed_error}\n\n"
+                failed_accounts += 1
 
         # УДАЛЯЕМ сообщение о загрузке и отправляем новое с результатами
         await loading_msg.delete()

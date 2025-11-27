@@ -1,3 +1,4 @@
+# functions/wb_api.py
 import aiohttp
 import asyncio
 from datetime import datetime, date
@@ -30,6 +31,8 @@ class WBAPI:
                 "flag": 1
             }
 
+            logger.info(f"Запрос заказов для даты: {date_from}")
+
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                         f"{self.base_url}/api/v1/supplier/orders",
@@ -38,21 +41,28 @@ class WBAPI:
                         timeout=30
                 ) as response:
 
+                    logger.info(f"Статус ответа заказов: {response.status}")
+
                     if response.status == 200:
                         orders = await response.json()
+                        logger.info(f"Получено заказов: {len(orders)}")
                         return self._calculate_orders_stats(orders)
 
                     elif response.status == 401:
+                        logger.error("Ошибка 401: Неверный API ключ")
                         raise ValueError("Неверный API ключ")
 
                     elif response.status == 429:
+                        logger.error("Ошибка 429: Слишком много запросов")
                         raise ValueError("Слишком много запросов. Попробуйте позже")
 
                     else:
                         error_text = await response.text()
+                        logger.error(f"Ошибка API заказов: {response.status} - {error_text}")
                         raise ValueError(f"Ошибка API заказов: {response.status} - {error_text}")
 
         except asyncio.TimeoutError:
+            logger.error("Таймаут при запросе заказов")
             raise ValueError("Таймаут при запросе заказов к WB API")
         except Exception as e:
             logger.error(f"Ошибка при получении статистики заказов: {e}")
@@ -72,6 +82,8 @@ class WBAPI:
                 "flag": 1
             }
 
+            logger.info(f"Запрос продаж для даты: {date_from}")
+
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                         f"{self.base_url}/api/v1/supplier/sales",
@@ -80,21 +92,28 @@ class WBAPI:
                         timeout=30
                 ) as response:
 
+                    logger.info(f"Статус ответа продаж: {response.status}")
+
                     if response.status == 200:
                         sales = await response.json()
+                        logger.info(f"Получено продаж: {len(sales)}")
                         return self._calculate_sales_stats(sales)
 
                     elif response.status == 401:
+                        logger.error("Ошибка 401: Неверный API ключ")
                         raise ValueError("Неверный API ключ")
 
                     elif response.status == 429:
+                        logger.error("Ошибка 429: Слишком много запросов")
                         raise ValueError("Слишком много запросов. Попробуйте позже")
 
                     else:
                         error_text = await response.text()
+                        logger.error(f"Ошибка API продаж: {response.status} - {error_text}")
                         raise ValueError(f"Ошибка API продаж: {response.status} - {error_text}")
 
         except asyncio.TimeoutError:
+            logger.error("Таймаут при запросе продаж")
             raise ValueError("Таймаут при запросе продаж к WB API")
         except Exception as e:
             logger.error(f"Ошибка при получении статистики продаж: {e}")
@@ -106,6 +125,7 @@ class WBAPI:
         Считает количество заказов по quantity и сумму по priceWithDisc
         """
         if not orders:
+            logger.info("Нет заказов за сегодня")
             return 0, 0.0
 
         total_quantity = 0
@@ -120,6 +140,7 @@ class WBAPI:
             if not order.get("isCancel", False):
                 total_amount += float(order.get("priceWithDisc", 0)) * quantity
 
+        logger.info(f"Рассчитано заказов: quantity={total_quantity}, amount={total_amount}")
         return total_quantity, total_amount
 
     def _calculate_sales_stats(self, sales: List[Dict]) -> Tuple[int, float]:
@@ -128,6 +149,7 @@ class WBAPI:
         Считает количество выкупов по quantity (только isRealization=True) и сумму по priceWithDisc
         """
         if not sales:
+            logger.info("Нет продаж за сегодня")
             return 0, 0.0
 
         total_quantity = 0
@@ -140,6 +162,7 @@ class WBAPI:
                 total_quantity += quantity
                 total_amount += float(sale.get("priceWithDisc", 0)) * quantity
 
+        logger.info(f"Рассчитано продаж: quantity={total_quantity}, amount={total_amount}")
         return total_quantity, total_amount
 
     async def get_today_stats_for_message(self) -> Dict[str, any]:
