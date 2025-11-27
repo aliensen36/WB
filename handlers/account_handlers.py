@@ -20,6 +20,25 @@ logger = logging.getLogger(__name__)
 account_router = Router()
 
 
+
+# ===========================================================================================
+# Обработчик отмены
+# ===========================================================================================
+
+
+@account_router.message(F.text == "❌ Отмена")
+async def handle_cancel(message: Message, state: FSMContext):
+    """Универсальный обработчик отмены с возвратом к главному меню"""
+    # Очищаем состояние
+    await state.clear()
+
+    # Возвращаем к главному меню
+    await message.answer(
+        "❌ Операция отменена.",
+        reply_markup=get_main_keyboard()
+    )
+
+
 # ===========================================================================================
 # Создание кабинета
 # ===========================================================================================
@@ -57,7 +76,7 @@ async def process_api_key(message: Message, state: FSMContext, session: AsyncSes
             "API ключ должен содержать не менее 10 символов.\n"
             "Пожалуйста, введите корректный API ключ:\n\n"
             "<i>Или нажмите \"❌ Отмена\" для выхода</i>",
-            reply_markup=get_cancel_keyboard()  # Кнопка отмены остается
+            reply_markup=get_cancel_keyboard()
         )
         return
 
@@ -146,39 +165,6 @@ async def process_account_name(message: Message, state: FSMContext, session: Asy
 
 
 
-# Обработчик отмены
-@account_router.message(F.text == "❌ Отмена")
-async def handle_cancel_anywhere(message: Message, state: FSMContext, session: AsyncSession):
-    """Универсальный обработчик отмены для всех состояний"""
-    current_state = await state.get_state()
-
-    print(f"DEBUG: Cancel pressed. Current state: {current_state}")  # Для отладки
-
-    # Обработка отмены в состояниях добавления кабинета
-    if current_state in [AddAccountStates.waiting_for_api_key.state, AddAccountStates.waiting_for_account_name.state]:
-        await state.clear()
-        account_manager = AccountManager(session)
-        all_accounts = await account_manager.get_all_accounts()
-
-        await message.answer(
-            "❌ Добавление кабинета отменено.",
-            reply_markup=get_accounts_keyboard(all_accounts) if all_accounts else get_main_accounts_keyboard()
-        )
-
-    elif current_state == AccountManagementStates.waiting_delete_confirm.state:
-        await state.set_state(AccountManagementStates.managing_account)
-        await message.answer(
-            "❌ Удаление отменено.",
-            reply_markup=get_account_management_keyboard()
-        )
-
-    # Если состояние managing_account или не определено
-    else:
-        await state.set_state(AccountManagementStates.managing_account)
-        await message.answer(
-            "❌ Операция отменена.",
-            reply_markup=get_account_management_keyboard()
-        )
 
 
 # ===========================================================================================
