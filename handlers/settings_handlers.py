@@ -1,5 +1,4 @@
 # settings_handlers.py
-
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
@@ -8,6 +7,7 @@ from database.account_manager import AccountManager
 from handlers.account_handlers import start_add_account, process_api_key, process_account_name
 import logging
 
+from keyboards.main_kb import get_main_keyboard
 from keyboards.settings_kb import get_settings_keyboard
 
 logger = logging.getLogger(__name__)
@@ -61,8 +61,7 @@ async def delete_shop_callback(callback: CallbackQuery, session: AsyncSession):
 
     if not all_accounts:
         await callback.message.edit_text(
-            "❌ <b>Нет магазинов для удаления</b>\n\n"
-            "Сначала добавьте магазин в настройках.",
+            "<b>Нет магазинов для удаления</b>",
             reply_markup=get_settings_keyboard()
         )
         return
@@ -73,16 +72,113 @@ async def delete_shop_callback(callback: CallbackQuery, session: AsyncSession):
     for account in all_accounts:
         account_name = account.account_name or f"Магазин {account.id}"
         builder.add(InlineKeyboardButton(
-            text=f"🗑 {account_name}",
+            text=f"{account_name}",
             callback_data=f"delete_account_{account.id}"
         ))
     builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_settings"))
     builder.adjust(1)
 
     await callback.message.edit_text(
-        "🗑 <b>Выберите магазин для удаления:</b>",
+        "<b>Выберите магазин для удаления:</b>",
         reply_markup=builder.as_markup()
     )
+
+
+@settings_router.callback_query(F.data.startswith("delete_account_"))
+async def confirm_delete_account(callback: CallbackQuery, session: AsyncSession):
+    """Подтверждение удаления магазина"""
+    account_id = int(callback.data.split("_")[2])
+
+    account_manager = AccountManager(session)
+    account = await account_manager.get_account_by_id(account_id)
+
+    if not account:
+        await callback.answer("❌ Магазин не найден")
+        return
+
+    account_name = account.account_name or f"Магазин {account.id}"
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"confirm_delete_{account_id}"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="back_to_settings")
+    )
+    builder.adjust(2)
+
+    await callback.message.edit_text(
+        f"🗑 <b>Подтвердите удаление</b>\n\n"
+        f"Вы действительно хотите удалить магазин:\n"
+        f"<b>{account_name}</b>\n\n"
+        f"<i>Это действие нельзя отменить!</i>",
+        reply_markup=builder.as_markup()
+    )
+
+
+@settings_router.callback_query(F.data.startswith("confirm_delete_"))
+async def execute_delete_account(callback: CallbackQuery, session: AsyncSession):
+    """Выполнение удаления магазина"""
+    account_id = int(callback.data.split("_")[2])
+
+    account_manager = AccountManager(session)
+    account = await account_manager.get_account_by_id(account_id)
+
+    if not account:
+        await callback.answer("❌ Магазин не найден")
+        return
+
+    account_name = account.account_name or f"Магазин {account.id}"
+
+    # Удаляем магазин
+    success = await account_manager.delete_account(account_id)
+
+    if success:
+        # Получаем обновленный список магазинов
+        all_accounts = await account_manager.get_all_accounts()
+
+        if all_accounts:
+            # Возвращаем к настройкам с обновленным списком
+            from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+            builder = InlineKeyboardBuilder()
+            builder.add(
+                InlineKeyboardButton(text="➕ Добавить магазин", callback_data="add_shop"),
+                InlineKeyboardButton(text="🗑 Удалить магазин", callback_data="delete_shop")
+            )
+            builder.adjust(1)
+
+            settings_text = f"⚙️ <b>Настройки магазинов</b>\n\n"
+            settings_text += f"✅ <b>Магазин \"{account_name}\" успешно удален!</b>\n\n"
+            settings_text += f"📋 <b>Добавленные магазины:</b>\n"
+
+            for i, acc in enumerate(all_accounts, 1):
+                acc_name = acc.account_name or f"Магазин {acc.id}"
+                settings_text += f"{i}. <b>{acc_name}</b>\n"
+
+            settings_text += f"\n<b>Доступные действия:</b>\n"
+            settings_text += f"• Добавить новый магазин\n"
+            settings_text += f"• Удалить существующий магазин\n\n"
+            settings_text += f"Выберите действие:"
+
+            await callback.message.edit_text(
+                settings_text,
+                reply_markup=builder.as_markup()
+            )
+        else:
+            # Если магазинов не осталось, возвращаем к главному меню
+            await callback.message.edit_text(
+                f"✅ <b>Магазин \"{account_name}\" успешно удален!</b>\n\n"
+                f"📭 <i>Больше нет добавленных магазинов</i>",
+                reply_markup=get_main_keyboard()
+            )
+    else:
+        await callback.message.edit_text(
+            f"❌ <b>Ошибка при удалении магазина</b>\n\n"
+            f"Не удалось удалить магазин <b>{account_name}</b>.\n"
+            f"Попробуйте позже.",
+            reply_markup=get_settings_keyboard()
+        )
 
 
 @settings_router.callback_query(F.data == "back_to_settings")
