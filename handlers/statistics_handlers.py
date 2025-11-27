@@ -83,16 +83,6 @@ async def show_all_accounts_stats(message: Message, session: AsyncSession):
                 stats_text += f"<b>{account_display_name}</b>\n"
                 stats_text += f"❌ Ошибка при получении данных\n\n"
 
-        # Добавляем общую статистику
-        # formatted_total_orders = f"{total_orders_amount:,.0f} ₽".replace(",", " ").replace(".", ",")
-        # formatted_total_sales = f"{total_sales_amount:,.2f} ₽".replace(",", " ").replace(".", ",")
-        #
-        # stats_text += "═══════════════════\n"
-        # stats_text += f"<b>ОБЩАЯ СТАТИСТИКА</b>\n"
-        # stats_text += f"🛒 Заказы: <b>{total_orders_quantity}</b> шт. на <b>{formatted_total_orders}</b>\n"
-        # stats_text += f"📈 Выкупы: <b>{total_sales_quantity}</b> на <b>{formatted_total_sales}</b>\n\n"
-        # stats_text += f"<i>Магазинов: {len(all_accounts)}</i>"
-
         # УДАЛЯЕМ сообщение о загрузке и отправляем новое с результатами
         await loading_msg.delete()
         await message.answer(
