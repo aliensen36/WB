@@ -9,6 +9,7 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.add(
         InlineKeyboardButton(text="➕ Добавить магазин", callback_data="add_shop"),
+        InlineKeyboardButton(text="✏️ Изменить название", callback_data="edit_shop"),
         InlineKeyboardButton(text="🗑 Удалить магазин", callback_data="delete_shop")
     )
     builder.adjust(1)

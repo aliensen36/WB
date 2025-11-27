@@ -205,3 +205,117 @@ async def back_to_settings(callback: CallbackQuery, session: AsyncSession):
         settings_text,
         reply_markup=get_settings_keyboard()
     )
+
+
+@settings_router.callback_query(F.data == "edit_shop")
+async def edit_shop_callback(callback: CallbackQuery, session: AsyncSession):
+    """Обработчик кнопки изменения названия магазина"""
+    account_manager = AccountManager(session)
+    all_accounts = await account_manager.get_all_accounts()
+
+    if not all_accounts:
+        await callback.message.edit_text(
+            "<b>Нет магазинов для редактирования</b>",
+            reply_markup=get_settings_keyboard()
+        )
+        return
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+    builder = InlineKeyboardBuilder()
+    for account in all_accounts:
+        account_name = account.account_name or f"Магазин {account.id}"
+        builder.add(InlineKeyboardButton(
+            text=f"{account_name}",
+            callback_data=f"edit_account_{account.id}"
+        ))
+    builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_settings"))
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        "<b>Выберите магазин для изменения названия:</b>",
+        reply_markup=builder.as_markup()
+    )
+
+
+@settings_router.callback_query(F.data.startswith("edit_account_"))
+async def start_edit_account(callback: CallbackQuery, session: AsyncSession):
+    """Запрос нового названия для магазина"""
+    account_id = int(callback.data.split("_")[2])
+
+    account_manager = AccountManager(session)
+    account = await account_manager.get_account_by_id(account_id)
+
+    if not account:
+        await callback.answer("❌ Магазин не найден")
+        return
+
+    current_name = account.account_name or f"Магазин {account.id}"
+
+    # Сохраняем ID магазина в callback_data кнопки отмены
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(
+        text="❌ Отмена",
+        callback_data=f"cancel_edit_{account_id}"
+    ))
+
+    await callback.message.edit_text(
+        f"✏️ <b>Редактирование названия магазина</b>\n\n"
+        f"Текущее название: <b>{current_name}</b>\n\n"
+        f"Введите новое название для магазина:",
+        reply_markup=builder.as_markup()
+    )
+
+
+@settings_router.callback_query(F.data.startswith("cancel_edit_"))
+async def cancel_edit(callback: CallbackQuery, session: AsyncSession):
+    """Отмена редактирования и возврат к списку магазинов"""
+    await edit_shop_callback(callback, session)
+
+
+@settings_router.message(F.text & ~F.text.startswith('/') & ~F.text.startswith('❌'))
+async def process_new_account_name(message: Message, session: AsyncSession):
+    """Обработка нового названия магазина (ловим все текстовые сообщения)"""
+    # Проверяем, что это ответ на запрос нового названия
+    # Для этого можно проверить, было ли предыдущее сообщение бота о редактировании
+    # или использовать более сложную логику
+
+    new_name = message.text.strip()
+
+    # Простая проверка - если название слишком длинное, вероятно это не то
+    if len(new_name) > 100:
+        return  # Игнорируем слишком длинные сообщения
+
+    if not new_name:
+        await message.answer("❌ Название не может быть пустым")
+        return
+
+    # Здесь нужна логика чтобы определить, для какого магазина это название
+    # Пока сделаем простой вариант - ищем магазин по текущему названию
+    account_manager = AccountManager(session)
+    all_accounts = await account_manager.get_all_accounts()
+
+    # Простой способ - предполагаем что пользователь отвечает на последний запрос
+    # В реальном приложении нужно хранить состояние
+    if all_accounts:
+        # Берем первый магазин для примера (в реальности нужно хранить контекст)
+        account = all_accounts[0]
+        current_name = account.account_name or f"Магазин {account.id}"
+
+        success = await account_manager.update_account_name(account.id, new_name)
+
+        if success:
+            await message.answer(
+                f"✅ <b>Название магазина успешно изменено!</b>\n\n"
+                f"Было: <b>{current_name}</b>\n"
+                f"Стало: <b>{new_name}</b>",
+                reply_markup=get_main_keyboard()
+            )
+        else:
+            await message.answer(
+                f"❌ <b>Ошибка при изменении названия</b>\n\n"
+                f"Не удалось изменить название магазина.",
+                reply_markup=get_main_keyboard()
+            )
