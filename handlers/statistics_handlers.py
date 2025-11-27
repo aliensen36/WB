@@ -45,11 +45,6 @@ async def show_all_accounts_stats(message: Message, session: AsyncSession):
         stats_text = f"📊 <b>Статистика всех магазинов</b>\n\n"
         stats_text += f"📅 За сегодня (<b>{today}</b>)\n\n"
 
-        total_orders_quantity = 0
-        total_orders_amount = 0.0
-        total_sales_quantity = 0
-        total_sales_amount = 0.0
-
         # Собираем статистику по каждому магазину
         for account in all_accounts:
             account_display_name = account.account_name or f"Магазин {account.id}"
@@ -71,12 +66,6 @@ async def show_all_accounts_stats(message: Message, session: AsyncSession):
                 stats_text += f"<b>{account_display_name}</b>\n"
                 stats_text += f"🛒 Заказы: <b>{orders_quantity}</b> шт. на <b>{formatted_orders_amount}</b>\n"
                 stats_text += f"📈 Выкупы: <b>{sales_quantity}</b> шт. на <b>{formatted_sales_amount}</b>\n\n"
-
-                # Суммируем общую статистику
-                total_orders_quantity += orders_quantity
-                total_orders_amount += orders_amount
-                total_sales_quantity += sales_quantity
-                total_sales_amount += sales_amount
 
             except Exception as e:
                 logger.error(f"Ошибка при получении статистики для {account_display_name}: {e}")

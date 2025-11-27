@@ -12,6 +12,8 @@ from keyboards.account_kb import get_main_accounts_keyboard, get_accounts_keyboa
 import logging
 from datetime import datetime
 
+from keyboards.main_kb import get_main_keyboard
+
 # Настройка логирования
 logger = logging.getLogger(__name__)
 
@@ -32,9 +34,10 @@ async def start_add_account(message: Message, state: FSMContext):
         "Как получить API ключ:\n"
         "1. Зайдите в личный кабинет продавца WB\n"
         "2. Настройки → Доступ к API\n"
-        "3. Сгенерируйте новый ключ или используйте существующий\n\n"
+        "3. Сгенерируйте новый ключ или используйте существующий "
+        "с доступами к категориям «Аналитика» и «Статистика», уровень: «Только чтение».\n\n"
         "<i>Или нажмите \"❌ Отмена\" для выхода</i>",
-        reply_markup=get_cancel_keyboard()  # Добавляем кнопку отмены
+        reply_markup=get_cancel_keyboard()
     )
     await state.set_state(AddAccountStates.waiting_for_api_key)
 
@@ -109,7 +112,7 @@ async def process_account_name(message: Message, state: FSMContext, session: Asy
         await message.answer(
             f"✅ Кабинет успешно добавлен!\n\n"
             f"Теперь вы можете работать с ним.",
-            reply_markup=get_accounts_keyboard(all_accounts)
+            reply_markup=get_main_keyboard()
         )
 
     except ValueError as e:
@@ -162,14 +165,6 @@ async def handle_cancel_anywhere(message: Message, state: FSMContext, session: A
             reply_markup=get_accounts_keyboard(all_accounts) if all_accounts else get_main_accounts_keyboard()
         )
 
-    # Обработка отмены в состояниях управления кабинетом
-    elif current_state == AccountManagementStates.waiting_rename.state:
-        await state.set_state(AccountManagementStates.managing_account)
-        await message.answer(
-            "❌ Переименование отменено.",
-            reply_markup=get_account_management_keyboard()
-        )
-
     elif current_state == AccountManagementStates.waiting_delete_confirm.state:
         await state.set_state(AccountManagementStates.managing_account)
         await message.answer(
@@ -191,170 +186,170 @@ async def handle_cancel_anywhere(message: Message, state: FSMContext, session: A
 # ===========================================================================================
 
 
-@account_router.message(F.text.startswith("🔹"))
-async def select_account(message: Message, state: FSMContext, session: AsyncSession):
-    """Обработчик выбора кабинета из списка"""
-    account_name = message.text[2:].strip()  # Убираем эмодзи
-
-    account_manager = AccountManager(session)
-    all_accounts = await account_manager.get_all_accounts()
-
-    # Ищем кабинет по названию
-    selected_account = None
-    for account in all_accounts:
-        display_name = account.account_name or f"Кабинет {account.id}"
-        if display_name == account_name:
-            selected_account = account
-            break
-
-    if selected_account:
-        await state.update_data(selected_account_id=selected_account.id)
-        await state.set_state(AccountManagementStates.managing_account)
-
-        await show_account_details(message, selected_account, session)
-    else:
-        await message.answer("❌ Кабинет не найден")
-
-
-async def show_account_details(message: Message, account: SellerAccount, session: AsyncSession):
-    """Показать детали кабинета и меню действий"""
-    account_display_name = account.account_name or f"Кабинет {account.id}"
-
-    keyboard = get_account_management_keyboard()
-
-    await message.answer(
-        f"📁 <b>{account_display_name}</b>\n\n"
-        f"Выберите действие:",
-        reply_markup=keyboard
-    )
-
-
-@account_router.message(AccountManagementStates.managing_account, F.text == "📊 Статистика")
-async def show_account_stats(message: Message, state: FSMContext, session: AsyncSession):
-    """Показать статистику кабинета в требуемом формате"""
-    data = await state.get_data()
-    account_id = data.get('selected_account_id')
-
-    account_manager = AccountManager(session)
-    account = await account_manager.get_account_by_id(account_id)
-
-    if account:
-        account_display_name = account.account_name or f"Кабинет {account.id}"
-
-        # Показываем сообщение о загрузке
-        loading_msg = await message.answer(
-            f"📊 <b>Статистика: {account_display_name}</b>\n\n"
-            f"🔄 Получение данных...",
-            reply_markup=get_account_management_keyboard()
-        )
-
-        try:
-            # Получаем статистику через WB API
-            wb_api = WBAPI(account.api_key)
-            stats = await wb_api.get_today_stats_for_message()
-
-            # Получаем данные
-            orders_quantity = stats["orders"]["quantity"]
-            orders_amount = stats["orders"]["amount"]
-            sales_quantity = stats["sales"]["quantity"]
-            sales_amount = stats["sales"]["amount"]
-
-            # Форматируем суммы
-            formatted_orders_amount = f"{orders_amount:,.0f} ₽".replace(",", " ").replace(".", ",")
-            formatted_sales_amount = f"{sales_amount:,.2f} ₽".replace(",", " ").replace(".", ",")
-
-            # Получаем текущую дату
-            today = datetime.now().strftime("%d.%m.%Y")
-
-            # Формируем сообщение в требуемом формате
-            stats_text = f"📊 Статистика: <b>{account_display_name}</b>\n\n"
-            stats_text += f"📅 За сегодня (<b>{today}</b>)\n\n"
-            stats_text += f"🛒 <b>Заказы</b>\n\n"
-            stats_text += f"<b>{orders_quantity}</b> шт. на <b>{formatted_orders_amount}</b>\n\n"
-            stats_text += f"✔️ <b>Выкупы</b>\n\n"
-            stats_text += f"<b>{sales_quantity}</b> шт. на <b>{formatted_sales_amount}</b>"
-
-            # УДАЛЯЕМ сообщение о загрузке и отправляем новое с результатами
-            await loading_msg.delete()
-            await message.answer(
-                stats_text,
-                reply_markup=get_account_management_keyboard()
-            )
-
-        except ValueError as e:
-            error_message = str(e)
-            # УДАЛЯЕМ сообщение о загрузке и отправляем новое с ошибкой
-            await loading_msg.delete()
-            await message.answer(
-                f"❌ <b>Ошибка при получении статистики:</b>\n"
-                f"{error_message}\n\n"
-                f"<i>Проверьте API ключ и попробуйте позже</i>",
-                reply_markup=get_account_management_keyboard()
-            )
-
-        except Exception as e:
-            logger.error(f"Неожиданная ошибка при получении статистики: {e}")
-            # УДАЛЯЕМ сообщение о загрузке и отправляем новое с ошибкой
-            await loading_msg.delete()
-            await message.answer(
-                f"❌ <b>Произошла непредвиденная ошибка</b>\n\n"
-                f"<i>Попробуйте позже или проверьте настройки кабинета</i>",
-                reply_markup=get_account_management_keyboard()
-            )
-
-    else:
-        await message.answer("❌ Кабинет не найден")
-
-
-
-
-@account_router.message(AccountManagementStates.managing_account, F.text == "✏️ Изменить")
-async def start_rename_account(message: Message, state: FSMContext):
-    """Начать процесс переименования кабинета"""
-    await state.set_state(AccountManagementStates.waiting_rename)
-    await message.answer(
-        "✏️ Введите новое название для кабинета:",
-        reply_markup=get_cancel_keyboard()
-    )
-
-
-@account_router.message(AccountManagementStates.waiting_rename)
-async def process_rename_account(message: Message, state: FSMContext, session: AsyncSession):
-    """Обработка нового названия кабинета"""
-    if message.text == "❌ Отмена":
-        await state.set_state(AccountManagementStates.managing_account)
-        await message.answer(
-            "❌ Переименование отменено.",
-            reply_markup=get_account_management_keyboard()
-        )
-        return
-
-    new_name = message.text.strip()
-
-    if len(new_name) > 100:
-        await message.answer(
-            "❌ Слишком длинное название. Максимум 100 символов.\n"
-            "Введите другое название:"
-        )
-        return
-
-    data = await state.get_data()
-    account_id = data.get('selected_account_id')
-
-    account_manager = AccountManager(session)
-    updated_account = await account_manager.update_account_name(account_id, new_name)
-
-    if updated_account:
-        await state.set_state(AccountManagementStates.managing_account)
-        await message.answer(
-            f"✅ Кабинет переименован в: <b>{new_name}</b>",
-            reply_markup=get_account_management_keyboard()
-        )
-    else:
-        await message.answer(
-            "❌ Ошибка при переименовании кабинета.",
-            reply_markup=get_account_management_keyboard()
-        )
+# @account_router.message(F.text.startswith("🔹"))
+# async def select_account(message: Message, state: FSMContext, session: AsyncSession):
+#     """Обработчик выбора кабинета из списка"""
+#     account_name = message.text[2:].strip()  # Убираем эмодзи
+#
+#     account_manager = AccountManager(session)
+#     all_accounts = await account_manager.get_all_accounts()
+#
+#     # Ищем кабинет по названию
+#     selected_account = None
+#     for account in all_accounts:
+#         display_name = account.account_name or f"Кабинет {account.id}"
+#         if display_name == account_name:
+#             selected_account = account
+#             break
+#
+#     if selected_account:
+#         await state.update_data(selected_account_id=selected_account.id)
+#         await state.set_state(AccountManagementStates.managing_account)
+#
+#         await show_account_details(message, selected_account, session)
+#     else:
+#         await message.answer("❌ Кабинет не найден")
+#
+#
+# async def show_account_details(message: Message, account: SellerAccount, session: AsyncSession):
+#     """Показать детали кабинета и меню действий"""
+#     account_display_name = account.account_name or f"Кабинет {account.id}"
+#
+#     keyboard = get_account_management_keyboard()
+#
+#     await message.answer(
+#         f"📁 <b>{account_display_name}</b>\n\n"
+#         f"Выберите действие:",
+#         reply_markup=keyboard
+#     )
+#
+#
+# @account_router.message(AccountManagementStates.managing_account, F.text == "📊 Статистика")
+# async def show_account_stats(message: Message, state: FSMContext, session: AsyncSession):
+#     """Показать статистику кабинета в требуемом формате"""
+#     data = await state.get_data()
+#     account_id = data.get('selected_account_id')
+#
+#     account_manager = AccountManager(session)
+#     account = await account_manager.get_account_by_id(account_id)
+#
+#     if account:
+#         account_display_name = account.account_name or f"Кабинет {account.id}"
+#
+#         # Показываем сообщение о загрузке
+#         loading_msg = await message.answer(
+#             f"📊 <b>Статистика: {account_display_name}</b>\n\n"
+#             f"🔄 Получение данных...",
+#             reply_markup=get_account_management_keyboard()
+#         )
+#
+#         try:
+#             # Получаем статистику через WB API
+#             wb_api = WBAPI(account.api_key)
+#             stats = await wb_api.get_today_stats_for_message()
+#
+#             # Получаем данные
+#             orders_quantity = stats["orders"]["quantity"]
+#             orders_amount = stats["orders"]["amount"]
+#             sales_quantity = stats["sales"]["quantity"]
+#             sales_amount = stats["sales"]["amount"]
+#
+#             # Форматируем суммы
+#             formatted_orders_amount = f"{orders_amount:,.0f} ₽".replace(",", " ").replace(".", ",")
+#             formatted_sales_amount = f"{sales_amount:,.2f} ₽".replace(",", " ").replace(".", ",")
+#
+#             # Получаем текущую дату
+#             today = datetime.now().strftime("%d.%m.%Y")
+#
+#             # Формируем сообщение в требуемом формате
+#             stats_text = f"📊 Статистика: <b>{account_display_name}</b>\n\n"
+#             stats_text += f"📅 За сегодня (<b>{today}</b>)\n\n"
+#             stats_text += f"🛒 <b>Заказы</b>\n\n"
+#             stats_text += f"<b>{orders_quantity}</b> шт. на <b>{formatted_orders_amount}</b>\n\n"
+#             stats_text += f"✔️ <b>Выкупы</b>\n\n"
+#             stats_text += f"<b>{sales_quantity}</b> шт. на <b>{formatted_sales_amount}</b>"
+#
+#             # УДАЛЯЕМ сообщение о загрузке и отправляем новое с результатами
+#             await loading_msg.delete()
+#             await message.answer(
+#                 stats_text,
+#                 reply_markup=get_account_management_keyboard()
+#             )
+#
+#         except ValueError as e:
+#             error_message = str(e)
+#             # УДАЛЯЕМ сообщение о загрузке и отправляем новое с ошибкой
+#             await loading_msg.delete()
+#             await message.answer(
+#                 f"❌ <b>Ошибка при получении статистики:</b>\n"
+#                 f"{error_message}\n\n"
+#                 f"<i>Проверьте API ключ и попробуйте позже</i>",
+#                 reply_markup=get_account_management_keyboard()
+#             )
+#
+#         except Exception as e:
+#             logger.error(f"Неожиданная ошибка при получении статистики: {e}")
+#             # УДАЛЯЕМ сообщение о загрузке и отправляем новое с ошибкой
+#             await loading_msg.delete()
+#             await message.answer(
+#                 f"❌ <b>Произошла непредвиденная ошибка</b>\n\n"
+#                 f"<i>Попробуйте позже или проверьте настройки кабинета</i>",
+#                 reply_markup=get_account_management_keyboard()
+#             )
+#
+#     else:
+#         await message.answer("❌ Кабинет не найден")
+#
+#
+#
+#
+# @account_router.message(AccountManagementStates.managing_account, F.text == "✏️ Изменить")
+# async def start_rename_account(message: Message, state: FSMContext):
+#     """Начать процесс переименования кабинета"""
+#     await state.set_state(AccountManagementStates.waiting_rename)
+#     await message.answer(
+#         "✏️ Введите новое название для кабинета:",
+#         reply_markup=get_cancel_keyboard()
+#     )
+#
+#
+# @account_router.message(AccountManagementStates.waiting_rename)
+# async def process_rename_account(message: Message, state: FSMContext, session: AsyncSession):
+#     """Обработка нового названия кабинета"""
+#     if message.text == "❌ Отмена":
+#         await state.set_state(AccountManagementStates.managing_account)
+#         await message.answer(
+#             "❌ Переименование отменено.",
+#             reply_markup=get_account_management_keyboard()
+#         )
+#         return
+#
+#     new_name = message.text.strip()
+#
+#     if len(new_name) > 100:
+#         await message.answer(
+#             "❌ Слишком длинное название. Максимум 100 символов.\n"
+#             "Введите другое название:"
+#         )
+#         return
+#
+#     data = await state.get_data()
+#     account_id = data.get('selected_account_id')
+#
+#     account_manager = AccountManager(session)
+#     updated_account = await account_manager.update_account_name(account_id, new_name)
+#
+#     if updated_account:
+#         await state.set_state(AccountManagementStates.managing_account)
+#         await message.answer(
+#             f"✅ Кабинет переименован в: <b>{new_name}</b>",
+#             reply_markup=get_account_management_keyboard()
+#         )
+#     else:
+#         await message.answer(
+#             "❌ Ошибка при переименовании кабинета.",
+#             reply_markup=get_account_management_keyboard()
+#         )
 
 
 @account_router.message(AccountManagementStates.managing_account, F.text == "🗑 Удалить")
