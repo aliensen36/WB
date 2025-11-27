@@ -269,10 +269,10 @@ async def show_account_stats(message: Message, state: FSMContext, session: Async
             # Формируем сообщение в требуемом формате
             stats_text = f"📊 Статистика: <b>{account_display_name}</b>\n\n"
             stats_text += f"📅 За сегодня (<b>{today}</b>)\n\n"
-            stats_text += f"🛒 <b>Заказы</b>\n"
+            stats_text += f"🛒 <b>Заказы</b>\n\n"
             stats_text += f"<b>{orders_quantity}</b> шт. на <b>{formatted_orders_amount}</b>\n\n"
-            stats_text += f"✅ <b>Выкупы</b>\n"
-            stats_text += f"<b>{sales_quantity}</b> на <b>{formatted_sales_amount}</b>"
+            stats_text += f"✔️ <b>Выкупы</b>\n\n"
+            stats_text += f"<b>{sales_quantity}</b> шт. на <b>{formatted_sales_amount}</b>"
 
             # УДАЛЯЕМ сообщение о загрузке и отправляем новое с результатами
             await loading_msg.delete()

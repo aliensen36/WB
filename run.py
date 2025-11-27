@@ -8,8 +8,9 @@ from dotenv import load_dotenv
 from config import config
 from database.engine import drop_db, create_db, session_maker
 from handlers.account_handlers import account_router
+from handlers.settings_handlers import settings_router
 from handlers.start_handlers import start_router
-from handlers.statistics import stats_router
+from handlers.statistics_handlers import statistics_router
 from middlewares.chat_auth import ChatAuthMiddleware
 from middlewares.db import DataBaseSession
 from middlewares.errors import ErrorMiddleware
@@ -29,7 +30,9 @@ dp = Dispatcher()
 
 dp.include_router(start_router)
 dp.include_router(account_router)
-dp.include_router(stats_router)
+dp.include_router(statistics_router)
+dp.include_router(settings_router)
+
 
 
 async def on_startup(bot):
