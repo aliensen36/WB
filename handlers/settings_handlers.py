@@ -3,6 +3,8 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from FSM.account_states import AccountManagementStates
 from database.account_manager import AccountManager
 from handlers.account_handlers import start_add_account, process_api_key, process_account_name
 import logging
@@ -239,7 +241,7 @@ async def edit_shop_callback(callback: CallbackQuery, session: AsyncSession):
 
 
 @settings_router.callback_query(F.data.startswith("edit_account_"))
-async def start_edit_account(callback: CallbackQuery, session: AsyncSession):
+async def start_edit_account(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     """Запрос нового названия для магазина"""
     account_id = int(callback.data.split("_")[2])
 
@@ -252,7 +254,10 @@ async def start_edit_account(callback: CallbackQuery, session: AsyncSession):
 
     current_name = account.account_name or f"Магазин {account.id}"
 
-    # Сохраняем ID магазина в callback_data кнопки отмены
+    # Сохраняем ID магазина в состоянии FSM
+    await state.update_data(editing_account_id=account_id)
+    await state.set_state(AccountManagementStates.waiting_rename)
+
     from aiogram.utils.keyboard import InlineKeyboardBuilder
 
     builder = InlineKeyboardBuilder()
@@ -269,53 +274,63 @@ async def start_edit_account(callback: CallbackQuery, session: AsyncSession):
     )
 
 
+
 @settings_router.callback_query(F.data.startswith("cancel_edit_"))
-async def cancel_edit(callback: CallbackQuery, session: AsyncSession):
+async def cancel_edit(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     """Отмена редактирования и возврат к списку магазинов"""
+    await state.clear()  # Очищаем состояние
     await edit_shop_callback(callback, session)
 
 
-@settings_router.message(F.text & ~F.text.startswith('/') & ~F.text.startswith('❌'))
-async def process_new_account_name(message: Message, session: AsyncSession):
-    """Обработка нового названия магазина (ловим все текстовые сообщения)"""
-    # Проверяем, что это ответ на запрос нового названия
-    # Для этого можно проверить, было ли предыдущее сообщение бота о редактировании
-    # или использовать более сложную логику
-
+@settings_router.message(AccountManagementStates.waiting_rename)
+async def process_new_account_name(message: Message, state: FSMContext, session: AsyncSession):
+    """Обработка нового названия магазина с использованием FSM"""
     new_name = message.text.strip()
 
-    # Простая проверка - если название слишком длинное, вероятно это не то
-    if len(new_name) > 100:
-        return  # Игнорируем слишком длинные сообщения
-
+    # Проверяем валидность названия
     if not new_name:
         await message.answer("❌ Название не может быть пустым")
         return
 
-    # Здесь нужна логика чтобы определить, для какого магазина это название
-    # Пока сделаем простой вариант - ищем магазин по текущему названию
+    if len(new_name) > 100:
+        await message.answer("❌ Название слишком длинное (максимум 100 символов)")
+        return
+
+    # Получаем ID магазина из состояния FSM
+    state_data = await state.get_data()
+    account_id = state_data.get('editing_account_id')
+
+    if not account_id:
+        await message.answer("❌ Ошибка: не найден магазин для редактирования")
+        await state.clear()
+        return
+
     account_manager = AccountManager(session)
-    all_accounts = await account_manager.get_all_accounts()
+    account = await account_manager.get_account_by_id(account_id)
 
-    # Простой способ - предполагаем что пользователь отвечает на последний запрос
-    # В реальном приложении нужно хранить состояние
-    if all_accounts:
-        # Берем первый магазин для примера (в реальности нужно хранить контекст)
-        account = all_accounts[0]
-        current_name = account.account_name or f"Магазин {account.id}"
+    if not account:
+        await message.answer("❌ Магазин не найден")
+        await state.clear()
+        return
 
-        success = await account_manager.update_account_name(account.id, new_name)
+    current_name = account.account_name or f"Магазин {account.id}"
 
-        if success:
-            await message.answer(
-                f"✅ <b>Название магазина успешно изменено!</b>\n\n"
-                f"Было: <b>{current_name}</b>\n"
-                f"Стало: <b>{new_name}</b>",
-                reply_markup=get_main_keyboard()
-            )
-        else:
-            await message.answer(
-                f"❌ <b>Ошибка при изменении названия</b>\n\n"
-                f"Не удалось изменить название магазина.",
-                reply_markup=get_main_keyboard()
-            )
+    # Обновляем название
+    updated_account = await account_manager.update_account_name(account_id, new_name)
+
+    if updated_account:
+        await message.answer(
+            f"✅ <b>Название магазина успешно изменено!</b>\n\n"
+            f"Было: <b>{current_name}</b>\n"
+            f"Стало: <b>{new_name}</b>",
+            reply_markup=get_main_keyboard()
+        )
+    else:
+        await message.answer(
+            f"❌ <b>Ошибка при изменении названия</b>\n\n"
+            f"Не удалось изменить название магазина.",
+            reply_markup=get_main_keyboard()
+        )
+
+    # Очищаем состояние
+    await state.clear()
