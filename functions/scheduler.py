@@ -166,8 +166,7 @@ class StatisticsScheduler:
         target_times = [
             (7, 0),  # 7:00 МСК
             (12, 0),  # 12:00 МСК
-            (19, 0),  # 19:00 МСК
-            (17, 30)
+            (19, 0)  # 19:00 МСК
         ]
 
         while True:
