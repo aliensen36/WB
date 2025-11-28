@@ -1,6 +1,7 @@
 # scheduler.py
 import asyncio
 from aiogram import Bot
+from aiogram.types import ChatMemberAdministrator, ChatMemberOwner
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.account_manager import AccountManager
 from functions.wb_api import WBAPI
@@ -18,6 +19,31 @@ class StatisticsScheduler:
         self.admin_chat_id = admin_chat_id
         # Устанавливаем московскую временную зону
         self.moscow_tz = pytz.timezone('Europe/Moscow')
+
+    async def get_admin_users_from_chat(self):
+        """Получить список администраторов и владельца группы"""
+        admin_users = []
+
+        try:
+            # Получаем список администраторов чата
+            chat_admins = await self.bot.get_chat_administrators(self.admin_chat_id)
+
+            for admin in chat_admins:
+                # Проверяем, что пользователь является администратором или владельцем
+                if isinstance(admin, (ChatMemberAdministrator, ChatMemberOwner)):
+                    # Проверяем, что у пользователя есть username или можно отправить сообщение
+                    if admin.user.is_bot:
+                        continue  # Пропускаем ботов
+
+                    admin_users.append(admin.user)
+                    logger.info(f"👤 Найден администратор: {admin.user.first_name} (ID: {admin.user.id})")
+
+            logger.info(f"📊 Всего найдено администраторов: {len(admin_users)}")
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка при получении списка администраторов: {e}")
+
+        return admin_users
 
     async def get_daily_stats_message(self, scheduled_time: str) -> str:
         """Сформировать сообщение со статистикой за сегодня для расписания"""
@@ -90,17 +116,41 @@ class StatisticsScheduler:
             return stats_text
 
     async def send_scheduled_report(self, scheduled_time: str):
-        """Отправить отчет в админскую группу"""
+        """Отправить отчет всем администраторам в личные чаты"""
         try:
-            # Получаем статистику
-            message = await self.get_daily_stats_message(scheduled_time)
+            # Получаем список администраторов
+            admin_users = await self.get_admin_users_from_chat()
 
-            # Отправляем в админскую группу
-            await self.bot.send_message(self.admin_chat_id, message)
-            logger.info(f"✅ Автоотчет {scheduled_time} отправлен в админскую группу {self.admin_chat_id}")
+            if not admin_users:
+                logger.warning("⚠️ Не найдено администраторов для отправки отчета")
+                return
+
+            # Получаем статистику (один раз для всех)
+            message = await self.get_daily_stats_message(scheduled_time)
+            successful_sends = 0
+            failed_sends = 0
+
+            # Отправляем каждому администратору в личный чат
+            for admin in admin_users:
+                try:
+                    await self.bot.send_message(admin.id, message)
+                    logger.info(
+                        f"✅ Автоотчет {scheduled_time} отправлен пользователю {admin.first_name} (ID: {admin.id})")
+                    successful_sends += 1
+
+                    # Небольшая задержка между отправками, чтобы не превысить лимиты Telegram
+                    await asyncio.sleep(0.5)
+
+                except Exception as e:
+                    logger.error(
+                        f"❌ Ошибка при отправке автоотчета пользователю {admin.first_name} (ID: {admin.id}): {e}")
+                    failed_sends += 1
+
+            logger.info(
+                f"📊 Итоги отправки автоотчета {scheduled_time}: успешно {successful_sends}, ошибок {failed_sends}")
 
         except Exception as e:
-            logger.error(f"❌ Ошибка при отправке автоотчета {scheduled_time}: {e}")
+            logger.error(f"❌ Ошибка при подготовке автоотчета {scheduled_time}: {e}")
 
     def get_moscow_time(self):
         """Получить текущее московское время"""
@@ -109,14 +159,15 @@ class StatisticsScheduler:
     async def start_scheduler(self):
         """Запустить планировщик отчетов"""
         logger.info("🕐 Планировщик автоотчетов запущен")
-        logger.info(f"💬 Отчеты будут приходить в админскую группу (ID: {self.admin_chat_id})")
+        logger.info(f"💬 Отчеты будут приходить в личные чаты администраторов из группы (ID: {self.admin_chat_id})")
         logger.info(f"🌍 Используется временная зона: {self.moscow_tz}")
 
         # Время отправки автоотчетов (московское время)
         target_times = [
             (7, 0),  # 7:00 МСК
             (12, 0),  # 12:00 МСК
-            (19, 0)  # 19:00 МСК
+            (19, 0),  # 19:00 МСК
+            (17, 30)
         ]
 
         while True:
@@ -137,9 +188,9 @@ class StatisticsScheduler:
 
                     try:
                         await self.send_scheduled_report(scheduled_time)
-                        logger.info(f"✅ Автоотчет {scheduled_time} отправлен")
+                        logger.info(f"✅ Автоотчет {scheduled_time} обработан")
                     except Exception as e:
-                        logger.error(f"❌ Ошибка при отправке автоотчета {scheduled_time}: {e}")
+                        logger.error(f"❌ Ошибка при обработке автоотчета {scheduled_time}: {e}")
 
                     # Ждем 61 секунду чтобы не отправить повторно
                     await asyncio.sleep(61)
