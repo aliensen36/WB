@@ -4,18 +4,20 @@ from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.account_manager import AccountManager
 from functions.wb_api import WBAPI
-from datetime import datetime
+from datetime import datetime, timezone
+import pytz
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class StatisticsScheduler:
-    def __init__(self, bot: Bot, session_maker):
+    def __init__(self, bot: Bot, session_maker, admin_chat_id: int):
         self.bot = bot
         self.session_maker = session_maker
-        # Сохраняем ID вашего чата (замените на ваш реальный chat_id)
-        self.your_chat_id = 1181445626  # Ваш chat_id из логов
+        self.admin_chat_id = admin_chat_id
+        # Устанавливаем московскую временную зону
+        self.moscow_tz = pytz.timezone('Europe/Moscow')
 
     async def get_daily_stats_message(self, scheduled_time: str) -> str:
         """Сформировать сообщение со статистикой за сегодня для расписания"""
@@ -26,7 +28,9 @@ class StatisticsScheduler:
             if not all_accounts:
                 return "❌ <b>Нет добавленных магазинов</b>\n\nДобавьте магазины в настройках."
 
-            today = datetime.now().strftime("%d.%m.%Y")
+            # Используем московское время для даты
+            moscow_time = datetime.now(self.moscow_tz)
+            today = moscow_time.strftime("%d.%m.%Y")
 
             # Добавляем заголовок для расписания
             stats_text = f"🕐 <b>Автоматический отчет ({scheduled_time})</b>\n\n"
@@ -86,38 +90,52 @@ class StatisticsScheduler:
             return stats_text
 
     async def send_scheduled_report(self, scheduled_time: str):
-        """Отправить отчет в ваш чат с ботом"""
+        """Отправить отчет в админскую группу"""
         try:
             # Получаем статистику
             message = await self.get_daily_stats_message(scheduled_time)
 
-            # Отправляем в ваш чат с ботом
-            await self.bot.send_message(self.your_chat_id, message)
-            logger.info(f"✅ Автоотчет {scheduled_time} отправлен в ваш чат с ботом")
+            # Отправляем в админскую группу
+            await self.bot.send_message(self.admin_chat_id, message)
+            logger.info(f"✅ Автоотчет {scheduled_time} отправлен в админскую группу {self.admin_chat_id}")
 
         except Exception as e:
             logger.error(f"❌ Ошибка при отправке автоотчета {scheduled_time}: {e}")
 
+    def get_moscow_time(self):
+        """Получить текущее московское время"""
+        return datetime.now(self.moscow_tz)
+
     async def start_scheduler(self):
         """Запустить планировщик отчетов"""
         logger.info("🕐 Планировщик автоотчетов запущен")
-        logger.info(f"💬 Отчеты будут приходить в ваш чат с ботом (ID: {self.your_chat_id})")
+        logger.info(f"💬 Отчеты будут приходить в админскую группу (ID: {self.admin_chat_id})")
+        logger.info(f"🌍 Используется временная зона: {self.moscow_tz}")
 
-        # Время отправки автоотчетов
+        # Время отправки автоотчетов (московское время)
         target_times = [
-            (7, 0),  # 7:00
-            (12, 0),  # 12:00
-            (19, 0)  # 19:00
+            (7, 0),  # 7:00 МСК
+            (12, 0),  # 12:00 МСК
+            (19, 0),  # 19:00 МСК
+            (16, 30),  # тест
+            (16, 35)  # тест
         ]
 
         while True:
-            now = datetime.now()
+            # Используем московское время для проверки
+            now = self.get_moscow_time()
+
+            # Логируем текущее время для отладки (раз в 30 минут)
+            if now.minute == 0 and now.second < 30:
+                logger.debug(f"🕐 Текущее московское время: {now.strftime('%H:%M:%S')}")
 
             # Проверяем все целевые времена
             for target_hour, target_minute in target_times:
                 if now.hour == target_hour and now.minute == target_minute:
-                    scheduled_time = f"{target_hour}:{target_minute:02d}"
+                    scheduled_time = f"{target_hour}:{target_minute:02d} МСК"
                     logger.info(f"⏰ Время автоотчета: {scheduled_time}")
+                    logger.info(f"🕐 Текущее серверное время UTC: {datetime.utcnow().strftime('%H:%M:%S')}")
+                    logger.info(f"🌍 Текущее московское время: {now.strftime('%H:%M:%S')}")
 
                     try:
                         await self.send_scheduled_report(scheduled_time)

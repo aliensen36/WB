@@ -36,7 +36,7 @@ dp.include_router(statistics_router)
 dp.include_router(settings_router)
 
 # Создаем планировщик
-scheduler = StatisticsScheduler(bot, session_maker)
+scheduler = StatisticsScheduler(bot, session_maker, admin_chat_id=config.ADMIN_CHAT_ID)
 
 
 async def on_startup(bot):
