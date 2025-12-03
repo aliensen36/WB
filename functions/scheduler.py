@@ -36,12 +36,12 @@ class StatisticsScheduler:
                         continue  # Пропускаем ботов
 
                     admin_users.append(admin.user)
-                    logger.info(f"👤 Найден администратор: {admin.user.first_name} (ID: {admin.user.id})")
+                    logger.info(f"Найден администратор: {admin.user.first_name} (ID: {admin.user.id})")
 
-            logger.info(f"📊 Всего найдено администраторов: {len(admin_users)}")
+            logger.info(f"Всего найдено администраторов: {len(admin_users)}")
 
         except Exception as e:
-            logger.error(f"❌ Ошибка при получении списка администраторов: {e}")
+            logger.error(f"Ошибка при получении списка администраторов: {e}")
 
         return admin_users
 
@@ -52,16 +52,16 @@ class StatisticsScheduler:
             all_accounts = await account_manager.get_all_accounts()
 
             if not all_accounts:
-                return "❌ <b>Нет добавленных магазинов</b>\n\nДобавьте магазины в настройках."
+                return "<b>Нет добавленных магазинов</b>\n\nДобавьте магазины в настройках."
 
             # Используем московское время для даты
             moscow_time = datetime.now(self.moscow_tz)
             today = moscow_time.strftime("%d.%m.%Y")
 
             # Добавляем заголовок для расписания
-            stats_text = f"🕐 <b>Автоматический отчет ({scheduled_time})</b>\n\n"
-            stats_text += f"📊 <b>Статистика всех магазинов</b>\n\n"
-            stats_text += f"📅 За сегодня (<b>{today}</b>)\n\n"
+            stats_text = f"<b>Автоматический отчет ({scheduled_time})</b>\n\n"
+            stats_text += f"<b>Статистика всех магазинов</b>\n\n"
+            stats_text += f"За сегодня (<b>{today}</b>)\n\n"
 
             successful_accounts = 0
             rate_limited_accounts = 0
@@ -87,8 +87,8 @@ class StatisticsScheduler:
                     formatted_sales_amount = f"{sales_amount:,.2f} ₽".replace(",", " ").replace(".", ",")
 
                     stats_text += f"<b>{account_display_name}</b>\n"
-                    stats_text += f"🛒 Заказы: <b>{orders_quantity}</b> шт. на <b>{formatted_orders_amount}</b>\n"
-                    stats_text += f"📈 Выкупы: <b>{sales_quantity}</b> шт. на <b>{formatted_sales_amount}</b>\n\n"
+                    stats_text += f"Заказы: <b>{orders_quantity}</b> шт. на <b>{formatted_orders_amount}</b>\n"
+                    stats_text += f"Выкупы: <b>{sales_quantity}</b> шт. на <b>{formatted_sales_amount}</b>\n\n"
 
                     successful_accounts += 1
 
@@ -107,11 +107,11 @@ class StatisticsScheduler:
                         display_error = "Ошибка подключения"
 
                     stats_text += f"<b>{account_display_name}</b>\n"
-                    stats_text += f"❌ {display_error}\n\n"
+                    stats_text += f"{display_error}\n\n"
 
             # Добавляем подсказку только если есть ошибки лимита
             if rate_limited_accounts > 0:
-                stats_text += "💡 <i>При превышении лимита повторите запрос через 1-2 минуты</i>"
+                stats_text += "<i>При превышении лимита повторите запрос через 1-2 минуты</i>"
 
             return stats_text
 
@@ -122,7 +122,7 @@ class StatisticsScheduler:
             admin_users = await self.get_admin_users_from_chat()
 
             if not admin_users:
-                logger.warning("⚠️ Не найдено администраторов для отправки отчета")
+                logger.warning("Не найдено администраторов для отправки отчета")
                 return
 
             # Получаем статистику (один раз для всех)
@@ -135,7 +135,7 @@ class StatisticsScheduler:
                 try:
                     await self.bot.send_message(admin.id, message)
                     logger.info(
-                        f"✅ Автоотчет {scheduled_time} отправлен пользователю {admin.first_name} (ID: {admin.id})")
+                        f"Автоотчет {scheduled_time} отправлен пользователю {admin.first_name} (ID: {admin.id})")
                     successful_sends += 1
 
                     # Небольшая задержка между отправками, чтобы не превысить лимиты Telegram
@@ -143,14 +143,14 @@ class StatisticsScheduler:
 
                 except Exception as e:
                     logger.error(
-                        f"❌ Ошибка при отправке автоотчета пользователю {admin.first_name} (ID: {admin.id}): {e}")
+                        f"Ошибка при отправке автоотчета пользователю {admin.first_name} (ID: {admin.id}): {e}")
                     failed_sends += 1
 
             logger.info(
-                f"📊 Итоги отправки автоотчета {scheduled_time}: успешно {successful_sends}, ошибок {failed_sends}")
+                f"Итоги отправки автоотчета {scheduled_time}: успешно {successful_sends}, ошибок {failed_sends}")
 
         except Exception as e:
-            logger.error(f"❌ Ошибка при подготовке автоотчета {scheduled_time}: {e}")
+            logger.error(f"Ошибка при подготовке автоотчета {scheduled_time}: {e}")
 
     def get_moscow_time(self):
         """Получить текущее московское время"""
@@ -158,9 +158,9 @@ class StatisticsScheduler:
 
     async def start_scheduler(self):
         """Запустить планировщик отчетов"""
-        logger.info("🕐 Планировщик автоотчетов запущен")
-        logger.info(f"💬 Отчеты будут приходить в личные чаты администраторов из группы (ID: {self.admin_chat_id})")
-        logger.info(f"🌍 Используется временная зона: {self.moscow_tz}")
+        logger.info("Планировщик автоотчетов запущен")
+        logger.info(f"Отчеты будут приходить в личные чаты администраторов из группы (ID: {self.admin_chat_id})")
+        logger.info(f"Используется временная зона: {self.moscow_tz}")
 
         # Время отправки автоотчетов (московское время)
         target_times = [
@@ -175,21 +175,21 @@ class StatisticsScheduler:
 
             # Логируем текущее время для отладки (раз в 30 минут)
             if now.minute == 0 and now.second < 30:
-                logger.debug(f"🕐 Текущее московское время: {now.strftime('%H:%M:%S')}")
+                logger.debug(f"Текущее московское время: {now.strftime('%H:%M:%S')}")
 
             # Проверяем все целевые времена
             for target_hour, target_minute in target_times:
                 if now.hour == target_hour and now.minute == target_minute:
                     scheduled_time = f"{target_hour}:{target_minute:02d} МСК"
-                    logger.info(f"⏰ Время автоотчета: {scheduled_time}")
-                    logger.info(f"🕐 Текущее серверное время UTC: {datetime.utcnow().strftime('%H:%M:%S')}")
-                    logger.info(f"🌍 Текущее московское время: {now.strftime('%H:%M:%S')}")
+                    logger.info(f"Время автоотчета: {scheduled_time}")
+                    logger.info(f"Текущее серверное время UTC: {datetime.utcnow().strftime('%H:%M:%S')}")
+                    logger.info(f"Текущее московское время: {now.strftime('%H:%M:%S')}")
 
                     try:
                         await self.send_scheduled_report(scheduled_time)
-                        logger.info(f"✅ Автоотчет {scheduled_time} обработан")
+                        logger.info(f"Автоотчет {scheduled_time} обработан")
                     except Exception as e:
-                        logger.error(f"❌ Ошибка при обработке автоотчета {scheduled_time}: {e}")
+                        logger.error(f"Ошибка при обработке автоотчета {scheduled_time}: {e}")
 
                     # Ждем 61 секунду чтобы не отправить повторно
                     await asyncio.sleep(61)

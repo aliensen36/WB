@@ -20,12 +20,12 @@ try:
     from config import config as app_config
 
     DB_URL = app_config.DB_URL
-    print(f"✅ Используется DB_URL из конфига: {DB_URL[:30]}...")
+    print(f"Используется DB_URL из конфига: {DB_URL[:30]}...")
 except ImportError as e:
-    print(f"⚠️ Не удалось импортировать конфиг: {e}")
+    print(f"Не удалось импортировать конфиг: {e}")
     DB_URL = None
 except Exception as e:
-    print(f"⚠️ Ошибка при получении DB_URL из конфига: {e}")
+    print(f"Ошибка при получении DB_URL из конфига: {e}")
     DB_URL = None
 
 # this is the Alembic Config object, which provides
@@ -40,9 +40,9 @@ if config.config_file_name is not None:
 # ПЕРЕОПРЕДЕЛЯЕМ sqlalchemy.url из нашего конфига, если он доступен
 if DB_URL:
     config.set_main_option("sqlalchemy.url", DB_URL)
-    print(f"✅ URL переопределен на значение из конфига")
+    print(f"URL переопределен на значение из конфига")
 else:
-    print(f"⚠️ Используется URL из alembic.ini")
+    print(f"Используется URL из alembic.ini")
 
 # add your model's MetaData object here
 target_metadata = Base.metadata

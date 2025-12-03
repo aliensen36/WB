@@ -21,6 +21,8 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
 
     await callback.answer()
 
+    logger.info("🔍 ВЫЗВАН ОБРАБОТЧИК yesterday_stats - начинаю обработку")
+
     try:
         loading_msg = await callback.message.answer(
             "📊 <b>Получение статистики по товарам за вчера...</b>\n\n"
@@ -43,10 +45,15 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
         account = all_accounts[0]
         account_name = account.account_name or f"Магазин {account.id}"
 
+        logger.info(f"🏪 Обрабатываю магазин: {account_name} (ID: {account.id})")
+
         try:
             # Получаем полную статистику по товарам
             yesterday_stats = YesterdayProductStatistics(account.api_key)
             stats = await yesterday_stats.get_yesterday_product_stats()
+
+            logger.info(f"📊 Получено статистики: {len(stats.get('products', []))} товаров для отображения")
+            logger.info(f"📦 Всего товаров для сохранения: {len(stats.get('all_products', []))}")
 
             # Если нет данных
             if stats["total_buyouts"] == 0 and stats["total_orders"] == 0:
@@ -68,9 +75,51 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
                 )
                 return
 
-            # Получаем кастомные названия из БД
+            # ИНИЦИАЛИЗИРУЕМ ProductManager
             product_manager = ProductManager(session)
+
+            # СОХРАНЯЕМ ТОВАРЫ В БД ПРИ ЗАГРУЗКЕ СТАТИСТИКИ
+            logger.info(f"🔄 Начинаю сохранение товаров в БД...")
+            saved_products_count = 0
+            updated_names_count = 0
+
+            # Используем все товары для сохранения
+            all_products_for_save = stats.get("all_products", [])
+
+            for product_data in all_products_for_save:
+                try:
+                    article = product_data.get('article')
+                    if article:
+                        # Сохраняем товар в БД (создаем или получаем существующий)
+                        product = await product_manager.get_or_create_product(
+                            seller_account_id=account.id,
+                            supplier_article=article
+                        )
+                        saved_products_count += 1
+
+                        # Сохраняем название товара из API, если его еще нет в БД
+                        title = product_data.get('title')
+                        if title and not product.custom_name:
+                            # Обрезаем слишком длинные названия
+                            short_title = title[:100] if len(title) > 100 else title
+                            success = await product_manager.update_custom_name(
+                                seller_account_id=account.id,
+                                supplier_article=article,
+                                custom_name=short_title
+                            )
+                            if success:
+                                updated_names_count += 1
+                                logger.debug(f"📝 Обновлено название для {article}: {short_title}")
+
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при сохранении товара {product_data.get('article', 'UNKNOWN')}: {e}")
+
+            logger.info(f"✅ Сохранено товаров в БД: {saved_products_count} из {len(all_products_for_save)}")
+            logger.info(f"📝 Обновлено названий: {updated_names_count}")
+
+            # Получаем кастомные названия из БД (теперь там уже есть товары)
             custom_names = await product_manager.get_custom_names_dict(account.id)
+            logger.info(f"📚 Загружено кастомных названий из БД: {len(custom_names)}")
 
             # Сортируем товары по количеству заказов (по убыванию)
             sorted_products = sorted(
@@ -89,6 +138,9 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
 
             response_text = f"<b>{account_name}</b>\n"
             response_text += f"📅 {stats['date']} ({day_name})\n\n"
+
+            # Добавляем информацию о сохраненных товарах
+            response_text += f"📦 <i>В БД сохранено: {saved_products_count} товаров</i>\n\n"
 
             # Добавляем товары
             for i, product in enumerate(products_to_show, 1):
@@ -203,3 +255,44 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
             reply_markup=get_stats_keyboard(),
             parse_mode="HTML"
         )
+
+
+@product_statistics_router.callback_query(F.data == "test_products_save")
+async def test_products_save(callback: CallbackQuery, session: AsyncSession):
+    """Тестовая команда для проверки сохранения товаров"""
+    await callback.answer()
+
+    try:
+        product_manager = ProductManager(session)
+        account_manager = AccountManager(session)
+
+        accounts = await account_manager.get_all_accounts()
+        if not accounts:
+            await callback.message.answer("❌ Нет аккаунтов")
+            return
+
+        account = accounts[0]
+
+        # 1. Создаем тестовый товар
+        test_product = await product_manager.get_or_create_product(
+            seller_account_id=account.id,
+            supplier_article=f"TEST_{callback.from_user.id}"
+        )
+
+        # 2. Проверяем количество товаров
+        all_products = await product_manager.get_all_products(account.id)
+
+        # 3. Получаем кастомные названия
+        custom_names = await product_manager.get_custom_names_dict(account.id)
+
+        await callback.message.answer(
+            f"✅ <b>Тест сохранения товаров:</b>\n\n"
+            f"🏪 Магазин: {account.account_name or account.id}\n"
+            f"📦 Тестовый товар: {test_product.supplier_article}\n"
+            f"🔢 Всего товаров в БД: {len(all_products)}\n"
+            f"📝 Кастомных названий: {len(custom_names)}\n\n"
+            f"<i>Теперь запросите статистику через 'Вчера по товарам'</i>"
+        )
+
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка теста: {str(e)}")

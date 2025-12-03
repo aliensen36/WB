@@ -239,7 +239,8 @@ class YesterdayProductStatistics:
                     "total_buyout_sum": 0.0,
                     "active_products": 0,
                     "products_with_sales": 0,
-                    "products": []
+                    "products": [],
+                    "all_products": []  # Добавляем поле со всеми товарами
                 }
 
             # Рассчитываем статистику
@@ -367,7 +368,8 @@ class YesterdayProductStatistics:
                 "total_buyout_sum": total_buyout_sum,
                 "active_products": active_products,
                 "products_with_sales": products_with_sales,
-                "products": formatted_products[:50],  # Ограничиваем до 50 товаров
+                "products": formatted_products[:50],  # Топ 50 для отображения
+                "all_products": formatted_products,   # Все товары для сохранения в БД
                 "overall_cart_conversion": (total_carts / total_views * 100) if total_views > 0 else 0,
                 "overall_order_conversion": (total_orders / total_carts * 100) if total_carts > 0 else 0
             }
