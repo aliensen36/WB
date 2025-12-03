@@ -3,6 +3,134 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
+from FSM.account_states import AccountManagementStates
+from database.account_manager import AccountManager
+from handlers.account_handlers import start_add_account, process_api_key, process_account_name
+import logging
+from keyboards.settings_kb import (
+    get_settings_keyboard,
+    get_shops_management_keyboard,
+    get_products_management_keyboard,
+    get_back_to_settings_keyboard
+)
+
+logger = logging.getLogger(__name__)
+
+settings_router = Router()
+
+
+@settings_router.message(F.text == "⚙️ Настройки")
+async def show_settings(message: Message, session: AsyncSession):
+    """Показать главное меню настроек"""
+    account_manager = AccountManager(session)
+    all_accounts = await account_manager.get_all_accounts()
+
+    accounts_count = len(all_accounts) if all_accounts else 0
+
+    settings_text = (
+        f"⚙️ <b>Настройки</b>\n\n"
+        f"📊 <b>Статистика:</b>\n"
+        f"• Магазинов: <b>{accounts_count}</b>\n"
+    )
+
+    # Если есть магазины, показываем их краткий список
+    if all_accounts:
+        settings_text += f"\n📋 <b>Список магазинов:</b>\n"
+        for i, account in enumerate(all_accounts[:5], 1):  # Показываем только первые 5
+            account_name = account.account_name or f"Магазин {account.id}"
+            settings_text += f"{i}. <b>{account_name}</b>\n"
+
+        if len(all_accounts) > 5:
+            settings_text += f"... и еще {len(all_accounts) - 5}\n"
+
+    settings_text += f"\n<b>Выберите раздел для управления:</b>"
+
+    await message.answer(
+        settings_text,
+        reply_markup=get_settings_keyboard()
+    )
+
+
+# === ОБРАБОТЧИКИ ДЛЯ ГЛАВНОГО МЕНЮ НАСТРОЕК ===
+
+@settings_router.callback_query(F.data == "manage_shops")
+async def manage_shops(callback: CallbackQuery, session: AsyncSession):
+    """Переход к управлению магазинами"""
+    account_manager = AccountManager(session)
+    all_accounts = await account_manager.get_all_accounts()
+
+    shops_text = "🏪 <b>Управление магазинами</b>\n\n"
+
+    if all_accounts:
+        shops_text += f"📋 <b>Ваши магазины:</b>\n"
+        for i, account in enumerate(all_accounts, 1):
+            account_name = account.account_name or f"Магазин {account.id}"
+            shops_text += f"{i}. <b>{account_name}</b>\n"
+    else:
+        shops_text += "📭 <i>У вас пока нет добавленных магазинов</i>\n"
+
+    shops_text += "\n<b>Выберите действие:</b>"
+
+    await callback.message.edit_text(
+        shops_text,
+        reply_markup=get_shops_management_keyboard()
+    )
+
+
+@settings_router.callback_query(F.data == "manage_products")
+async def manage_products(callback: CallbackQuery, session: AsyncSession):
+    """Переход к управлению продуктами"""
+    account_manager = AccountManager(session)
+    all_accounts = await account_manager.get_all_accounts()
+
+    if not all_accounts:
+        await callback.message.edit_text(
+            "📦 <b>Управление продуктами</b>\n\n"
+            "❌ <i>Для управления продуктами сначала добавьте магазин</i>",
+            reply_markup=get_back_to_settings_keyboard()
+        )
+        return
+
+    products_text = "📦 <b>Управление продуктами</b>\n\n"
+    products_text += "Здесь вы можете:\n"
+    products_text += "• 📋 Просмотреть список всех продуктов\n"
+    products_text += "• ✏️ Изменить названия продуктов\n\n"
+    products_text += "<b>Выберите действие:</b>"
+
+    await callback.message.edit_text(
+        products_text,
+        reply_markup=get_products_management_keyboard()
+    )
+
+
+@settings_router.callback_query(F.data == "back_to_settings")
+async def back_to_settings(callback: CallbackQuery, session: AsyncSession):
+    """Возврат к главному меню настроек"""
+    await show_settings(callback.message, session)
+
+
+@settings_router.callback_query(F.data == "back_to_main")
+async def back_to_main(callback: CallbackQuery):
+    """Возврат в главное меню"""
+    await callback.message.edit_text(
+        "🏠 <b>Главное меню</b>",
+        reply_markup=get_main_keyboard()
+    )
+
+
+# === ОБРАБОТЧИКИ ДЛЯ УПРАВЛЕНИЯ МАГАЗИНАМИ ===
+
+
+
+
+
+
+
+# settings_handlers.py
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from FSM.account_states import AccountManagementStates
 from database.account_manager import AccountManager
@@ -209,128 +337,128 @@ async def back_to_settings(callback: CallbackQuery, session: AsyncSession):
     )
 
 
-@settings_router.callback_query(F.data == "edit_shop")
-async def edit_shop_callback(callback: CallbackQuery, session: AsyncSession):
-    """Обработчик кнопки изменения названия магазина"""
-    account_manager = AccountManager(session)
-    all_accounts = await account_manager.get_all_accounts()
-
-    if not all_accounts:
-        await callback.message.edit_text(
-            "<b>Нет магазинов для редактирования</b>",
-            reply_markup=get_settings_keyboard()
-        )
-        return
-
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-
-    builder = InlineKeyboardBuilder()
-    for account in all_accounts:
-        account_name = account.account_name or f"Магазин {account.id}"
-        builder.add(InlineKeyboardButton(
-            text=f"{account_name}",
-            callback_data=f"edit_account_{account.id}"
-        ))
-    builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_settings"))
-    builder.adjust(1)
-
-    await callback.message.edit_text(
-        "<b>Выберите магазин для изменения названия:</b>",
-        reply_markup=builder.as_markup()
-    )
-
-
-@settings_router.callback_query(F.data.startswith("edit_account_"))
-async def start_edit_account(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
-    """Запрос нового названия для магазина"""
-    account_id = int(callback.data.split("_")[2])
-
-    account_manager = AccountManager(session)
-    account = await account_manager.get_account_by_id(account_id)
-
-    if not account:
-        await callback.answer("❌ Магазин не найден")
-        return
-
-    current_name = account.account_name or f"Магазин {account.id}"
-
-    # Сохраняем ID магазина в состоянии FSM
-    await state.update_data(editing_account_id=account_id)
-    await state.set_state(AccountManagementStates.waiting_rename)
-
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-
-    builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(
-        text="❌ Отмена",
-        callback_data=f"cancel_edit_{account_id}"
-    ))
-
-    await callback.message.edit_text(
-        f"✏️ <b>Редактирование названия магазина</b>\n\n"
-        f"Текущее название: <b>{current_name}</b>\n\n"
-        f"Введите новое название для магазина:",
-        reply_markup=builder.as_markup()
-    )
+# @settings_router.callback_query(F.data == "edit_shop")
+# async def edit_shop_callback(callback: CallbackQuery, session: AsyncSession):
+#     """Обработчик кнопки изменения названия магазина"""
+#     account_manager = AccountManager(session)
+#     all_accounts = await account_manager.get_all_accounts()
+#
+#     if not all_accounts:
+#         await callback.message.edit_text(
+#             "<b>Нет магазинов для редактирования</b>",
+#             reply_markup=get_settings_keyboard()
+#         )
+#         return
+#
+#     from aiogram.utils.keyboard import InlineKeyboardBuilder
+#
+#     builder = InlineKeyboardBuilder()
+#     for account in all_accounts:
+#         account_name = account.account_name or f"Магазин {account.id}"
+#         builder.add(InlineKeyboardButton(
+#             text=f"{account_name}",
+#             callback_data=f"edit_account_{account.id}"
+#         ))
+#     builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_settings"))
+#     builder.adjust(1)
+#
+#     await callback.message.edit_text(
+#         "<b>Выберите магазин для изменения названия:</b>",
+#         reply_markup=builder.as_markup()
+#     )
 
 
+# @settings_router.callback_query(F.data.startswith("edit_account_"))
+# async def start_edit_account(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+#     """Запрос нового названия для магазина"""
+#     account_id = int(callback.data.split("_")[2])
+#
+#     account_manager = AccountManager(session)
+#     account = await account_manager.get_account_by_id(account_id)
+#
+#     if not account:
+#         await callback.answer("❌ Магазин не найден")
+#         return
+#
+#     current_name = account.account_name or f"Магазин {account.id}"
+#
+#     # Сохраняем ID магазина в состоянии FSM
+#     await state.update_data(editing_account_id=account_id)
+#     await state.set_state(AccountManagementStates.waiting_rename)
+#
+#     from aiogram.utils.keyboard import InlineKeyboardBuilder
+#
+#     builder = InlineKeyboardBuilder()
+#     builder.add(InlineKeyboardButton(
+#         text="❌ Отмена",
+#         callback_data=f"cancel_edit_{account_id}"
+#     ))
+#
+#     await callback.message.edit_text(
+#         f"✏️ <b>Редактирование названия магазина</b>\n\n"
+#         f"Текущее название: <b>{current_name}</b>\n\n"
+#         f"Введите новое название для магазина:",
+#         reply_markup=builder.as_markup()
+#     )
 
-@settings_router.callback_query(F.data.startswith("cancel_edit_"))
-async def cancel_edit(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
-    """Отмена редактирования и возврат к списку магазинов"""
-    await state.clear()  # Очищаем состояние
-    await edit_shop_callback(callback, session)
 
 
-@settings_router.message(AccountManagementStates.waiting_rename)
-async def process_new_account_name(message: Message, state: FSMContext, session: AsyncSession):
-    """Обработка нового названия магазина с использованием FSM"""
-    new_name = message.text.strip()
+# @settings_router.callback_query(F.data.startswith("cancel_edit_"))
+# async def cancel_edit(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+#     """Отмена редактирования и возврат к списку магазинов"""
+#     await state.clear()  # Очищаем состояние
+#     await edit_shop_callback(callback, session)
 
-    # Проверяем валидность названия
-    if not new_name:
-        await message.answer("❌ Название не может быть пустым")
-        return
 
-    if len(new_name) > 100:
-        await message.answer("❌ Название слишком длинное (максимум 100 символов)")
-        return
-
-    # Получаем ID магазина из состояния FSM
-    state_data = await state.get_data()
-    account_id = state_data.get('editing_account_id')
-
-    if not account_id:
-        await message.answer("❌ Ошибка: не найден магазин для редактирования")
-        await state.clear()
-        return
-
-    account_manager = AccountManager(session)
-    account = await account_manager.get_account_by_id(account_id)
-
-    if not account:
-        await message.answer("❌ Магазин не найден")
-        await state.clear()
-        return
-
-    current_name = account.account_name or f"Магазин {account.id}"
-
-    # Обновляем название
-    updated_account = await account_manager.update_account_name(account_id, new_name)
-
-    if updated_account:
-        await message.answer(
-            f"✅ <b>Название магазина успешно изменено!</b>\n\n"
-            f"Было: <b>{current_name}</b>\n"
-            f"Стало: <b>{new_name}</b>",
-            reply_markup=get_main_keyboard()
-        )
-    else:
-        await message.answer(
-            f"❌ <b>Ошибка при изменении названия</b>\n\n"
-            f"Не удалось изменить название магазина.",
-            reply_markup=get_main_keyboard()
-        )
-
-    # Очищаем состояние
-    await state.clear()
+# @settings_router.message(AccountManagementStates.waiting_rename)
+# async def process_new_account_name(message: Message, state: FSMContext, session: AsyncSession):
+#     """Обработка нового названия магазина с использованием FSM"""
+#     new_name = message.text.strip()
+#
+#     # Проверяем валидность названия
+#     if not new_name:
+#         await message.answer("❌ Название не может быть пустым")
+#         return
+#
+#     if len(new_name) > 100:
+#         await message.answer("❌ Название слишком длинное (максимум 100 символов)")
+#         return
+#
+#     # Получаем ID магазина из состояния FSM
+#     state_data = await state.get_data()
+#     account_id = state_data.get('editing_account_id')
+#
+#     if not account_id:
+#         await message.answer("❌ Ошибка: не найден магазин для редактирования")
+#         await state.clear()
+#         return
+#
+#     account_manager = AccountManager(session)
+#     account = await account_manager.get_account_by_id(account_id)
+#
+#     if not account:
+#         await message.answer("❌ Магазин не найден")
+#         await state.clear()
+#         return
+#
+#     current_name = account.account_name or f"Магазин {account.id}"
+#
+#     # Обновляем название
+#     updated_account = await account_manager.update_account_name(account_id, new_name)
+#
+#     if updated_account:
+#         await message.answer(
+#             f"✅ <b>Название магазина успешно изменено!</b>\n\n"
+#             f"Было: <b>{current_name}</b>\n"
+#             f"Стало: <b>{new_name}</b>",
+#             reply_markup=get_main_keyboard()
+#         )
+#     else:
+#         await message.answer(
+#             f"❌ <b>Ошибка при изменении названия</b>\n\n"
+#             f"Не удалось изменить название магазина.",
+#             reply_markup=get_main_keyboard()
+#         )
+#
+#     # Очищаем состояние
+#     await state.clear()

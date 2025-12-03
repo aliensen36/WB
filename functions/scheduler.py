@@ -1,4 +1,4 @@
-# scheduler.py
+# functions/scheduler.py
 import asyncio
 from aiogram import Bot
 from aiogram.types import ChatMemberAdministrator, ChatMemberOwner

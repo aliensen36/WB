@@ -9,6 +9,7 @@ class AddAccountStates(StatesGroup):
 
 # Состояния для управления кабинетом
 class AccountManagementStates(StatesGroup):
-    managing_account = State()
-    waiting_rename = State()
-    waiting_delete_confirm = State()
+    waiting_account_name = State()        # Ожидание ввода имени аккаунта
+    waiting_api_key = State()             # Ожидание ввода API ключа
+    waiting_rename = State()              # Ожидание нового названия магазина
+    waiting_product_rename = State()      # Ожидание нового названия продукта
