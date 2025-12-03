@@ -1,27 +1,25 @@
-# Клавиатура главного меню
-from aiogram.types import KeyboardButton
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
+# statistics_kb.py
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-# def get_main_keyboard():
-#     keyboard = ReplyKeyboardBuilder()
-#     keyboard.add(KeyboardButton(text="📊 Статистика за сегодня"))
-#     keyboard.add(KeyboardButton(text="📈 Статистика за вчера"))
-#     keyboard.add(KeyboardButton(text="🕐 Статистика за 24 часа"))
-#     keyboard.add(KeyboardButton(text="📅 Выбрать период"))
-#     keyboard.add(KeyboardButton(text="🚚 Поставки"))
-#     keyboard.add(KeyboardButton(text="📦 Остатки"))
-#     keyboard.adjust(2)
-#     return keyboard.as_markup(resize_keyboard=True)
+def get_stats_keyboard() -> InlineKeyboardMarkup:
+    """
+    Создает инлайн-клавиатуру для выбора статистики
+    Каждая кнопка размещается в отдельном ряду
+    """
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="📊 Текущая статистика",
+                callback_data="current_stats"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="📈 Статистика за вчера",
+                callback_data="yesterday_stats"
+            )
+        ]
+    ])
 
-# Клавиатура выбора периода
-def get_period_keyboard():
-    keyboard = ReplyKeyboardBuilder()
-    keyboard.add(KeyboardButton(text="Сегодня"))
-    keyboard.add(KeyboardButton(text="Вчера"))
-    keyboard.add(KeyboardButton(text="3 дня"))
-    keyboard.add(KeyboardButton(text="7 дней"))
-    keyboard.add(KeyboardButton(text="30 дней"))
-    keyboard.add(KeyboardButton(text="↩️ Назад"))
-    keyboard.adjust(2)
-    return keyboard.as_markup(resize_keyboard=True)
+    return keyboard

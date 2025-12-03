@@ -1,14 +1,9 @@
 # settings_handlers.py
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
-from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
-from FSM.account_states import AccountManagementStates
-from database.account_manager import AccountManager
-from handlers.account_handlers import start_add_account, process_api_key, process_account_name
 import logging
 from keyboards.settings_kb import (
-    get_settings_keyboard,
     get_shops_management_keyboard,
     get_products_management_keyboard,
     get_back_to_settings_keyboard
@@ -118,7 +113,7 @@ async def back_to_main(callback: CallbackQuery):
     )
 
 
-# === ОБРАБОТЧИКИ ДЛЯ УПРАВЛЕНИЯ МАГАЗИНАМИ ===
+
 
 
 
@@ -131,8 +126,6 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from FSM.account_states import AccountManagementStates
 from database.account_manager import AccountManager
 from handlers.account_handlers import start_add_account, process_api_key, process_account_name
 import logging
@@ -156,13 +149,13 @@ async def show_settings(message: Message, session: AsyncSession):
     settings_text = f"⚙️ <b>Настройки магазинов</b>\n\n"
 
     if all_accounts:
-        settings_text += f"📋 <b>Добавленные магазины:</b>\n"
+        settings_text += f"📋 <b>Список магазинов:</b>\n"
         for i, account in enumerate(all_accounts, 1):
             account_name = account.account_name or f"Магазин {account.id}"
             settings_text += f"{i}. <b>{account_name}</b>\n"
         settings_text += f"\n"
     else:
-        settings_text += f"📋 <b>Добавленные магазины:</b>\n"
+        settings_text += f"📋 <b>Список магазинов:</b>\n"
         settings_text += f"   <i>пока нет магазинов</i>\n\n"
 
     settings_text += f"<b>Доступные действия:</b>\n"
@@ -277,7 +270,7 @@ async def execute_delete_account(callback: CallbackQuery, session: AsyncSession)
             # Возвращаем к настройкам с обновленным списком
             settings_text = f"⚙️ <b>Настройки магазинов</b>\n\n"
             settings_text += f"✅ <b>Магазин \"{account_name}\" успешно удален!</b>\n\n"
-            settings_text += f"📋 <b>Добавленные магазины:</b>\n"
+            settings_text += f"📋 <b>Список магазинов:</b>\n"
 
             for i, acc in enumerate(all_accounts, 1):
                 acc_name = acc.account_name or f"Магазин {acc.id}"
@@ -317,13 +310,13 @@ async def back_to_settings(callback: CallbackQuery, session: AsyncSession):
     settings_text = f"⚙️ <b>Настройки магазинов</b>\n\n"
 
     if all_accounts:
-        settings_text += f"📋 <b>Добавленные магазины:</b>\n"
+        settings_text += f"📋 <b>Список магазинов:</b>\n"
         for i, account in enumerate(all_accounts, 1):
             account_name = account.account_name or f"Магазин {account.id}"
             settings_text += f"{i}. <b>{account_name}</b>\n"
         settings_text += f"\n"
     else:
-        settings_text += f"📋 <b>Добавленные магазины:</b>\n"
+        settings_text += f"📋 <b>Список магазинов:</b>\n"
         settings_text += f"   <i>пока нет магазинов</i>\n\n"
 
     settings_text += f"<b>Доступные действия:</b>\n"

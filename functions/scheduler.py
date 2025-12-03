@@ -2,12 +2,12 @@
 import asyncio
 from aiogram import Bot
 from aiogram.types import ChatMemberAdministrator, ChatMemberOwner
-from sqlalchemy.ext.asyncio import AsyncSession
 from database.account_manager import AccountManager
-from functions.wb_api import WBAPI
 from datetime import datetime, timezone
 import pytz
 import logging
+
+from functions.current_statistics import CurrentStatistics
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class StatisticsScheduler:
                     if i > 0:
                         await asyncio.sleep(2)
 
-                    wb_api = WBAPI(account.api_key)
+                    wb_api = CurrentStatistics(account.api_key)
                     stats = await wb_api.get_today_stats_for_message()
 
                     orders_quantity = stats["orders"]["quantity"]

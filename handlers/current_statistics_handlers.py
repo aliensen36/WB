@@ -1,0 +1,124 @@
+# handlers/current_statistics_handlers.py
+import asyncio
+from aiogram.types import CallbackQuery, Message
+from aiogram import Router, F
+from datetime import datetime, timedelta
+import logging
+from sqlalchemy.ext.asyncio import AsyncSession
+from database.account_manager import AccountManager
+from functions.current_statistics import CurrentStatistics
+from keyboards.statistics_kb import get_stats_keyboard
+
+logger = logging.getLogger(__name__)
+
+current_statistics_router = Router()
+
+
+@current_statistics_router.callback_query(F.data == "current_stats")
+async def handle_current_stats(callback: CallbackQuery, session: AsyncSession):
+    """Показать статистику всех магазинов за сегодня для инлайн-кнопки"""
+    await callback.answer()
+    try:
+        # ТОЧНО ТАК ЖЕ как в старом хендлере
+        loading_msg = await callback.message.answer(
+            "📊 <b>Получение статистики...</b>\n\n"
+            "🔄 Загружаем данные по всем магазинам...\n"
+            "<i>Это может занять несколько минут при превышении лимитов</i>"
+        )
+
+        account_manager = AccountManager(session)
+        all_accounts = await account_manager.get_all_accounts()
+
+        if not all_accounts:
+            await loading_msg.delete()
+            await callback.message.answer(
+                "❌ <b>Нет добавленных магазинов</b>\n\n"
+                "Перейдите в настройки, чтобы добавить первый магазин.",
+                reply_markup=get_stats_keyboard()
+            )
+            return
+
+        today = datetime.now().strftime("%d.%m.%Y")
+        stats_text = f"📊 <b>Статистика всех магазинов</b>\n\n"
+        stats_text += f"📅 За сегодня (<b>{today}</b>)\n\n"
+
+        successful_accounts = 0
+        failed_accounts = 0
+        rate_limited_accounts = 0
+
+        # Собираем статистику по каждому магазину с задержками
+        for i, account in enumerate(all_accounts):
+            account_display_name = account.account_name or f"Магазин {account.id}"
+
+            try:
+                # Задержка между запросами к разным аккаунтам
+                if i > 0:
+                    await asyncio.sleep(5)
+
+                # УБРАЛ обновление прогресса! Оставляем только первоначальное сообщение
+                # if i % 3 == 0:
+                #     try:
+                #         await loading_msg.edit_text(
+                #             f"📊 <b>Получение статистики...</b>\n\n"
+                #             f"🔄 Обработано {i}/{len(all_accounts)} магазинов\n"
+                #             f"✅ Успешно: {successful_accounts}\n"
+                #             f"❌ Ошибки: {failed_accounts}"
+                #         )
+                #     except:
+                #         pass
+
+                wb_api = CurrentStatistics(account.api_key)
+                stats = await wb_api.get_today_stats_for_message()
+
+                orders_quantity = stats["orders"]["quantity"]
+                orders_amount = stats["orders"]["amount"]
+                sales_quantity = stats["sales"]["quantity"]
+                sales_amount = stats["sales"]["amount"]
+
+                formatted_orders_amount = f"{orders_amount:,.0f} ₽".replace(",", " ").replace(".", ",")
+                formatted_sales_amount = f"{sales_amount:,.2f} ₽".replace(",", " ").replace(".", ",")
+
+                stats_text += f"<b>{account_display_name}</b>\n"
+                stats_text += f"🛒 Заказы: <b>{orders_quantity}</b> шт. на <b>{formatted_orders_amount}</b>\n"
+                stats_text += f"📈 Выкупы: <b>{sales_quantity}</b> шт. на <b>{formatted_sales_amount}</b>\n\n"
+
+                successful_accounts += 1
+
+            except Exception as e:
+                error_message = str(e)
+
+                # Извлекаем только конкретную причину ошибки
+                if "Неверный API ключ" in error_message:
+                    display_error = "Неверный API ключ"
+                elif "Превышен лимит запросов" in error_message:
+                    display_error = "Превышен лимит запросов"
+                    rate_limited_accounts += 1
+                elif "Таймаут запроса" in error_message:
+                    display_error = "Таймаут запроса"
+                else:
+                    display_error = "Ошибка подключения"
+
+                stats_text += f"<b>{account_display_name}</b>\n"
+                stats_text += f"❌ {display_error}\n\n"
+                failed_accounts += 1
+
+                logger.warning(f"Ошибка для {account_display_name}: {error_message}")
+
+        # Добавляем подсказку только если есть ошибки лимита
+        if rate_limited_accounts > 0:
+            stats_text += "💡 <i>Некоторые данные не получены из-за ограничений API. Попробуйте позже.</i>"
+
+        await loading_msg.delete()
+        await callback.message.answer(stats_text, reply_markup=get_stats_keyboard())
+
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка: {e}")
+        try:
+            await loading_msg.delete()
+        except:
+            pass
+        await callback.message.answer(
+            "❌ <b>Произошла непредвиденная ошибка</b>\n\n"
+            "<i>Попробуйте позже</i>",
+            reply_markup=get_stats_keyboard()
+        )

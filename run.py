@@ -10,7 +10,8 @@ from database.engine import drop_db, create_db, session_maker
 from functions.scheduler import StatisticsScheduler
 from functions.set_bot_commands import set_bot_commands
 from handlers.account_handlers import account_router
-from handlers.product_handlers import product_router
+from handlers.current_statistics_handlers import current_statistics_router
+from handlers.product_statistics_handlers import product_statistics_router
 from handlers.settings_handlers import settings_router
 from handlers.start_handlers import start_router
 from handlers.statistics_handlers import statistics_router
@@ -35,7 +36,8 @@ dp.include_router(start_router)
 dp.include_router(account_router)
 dp.include_router(statistics_router)
 dp.include_router(settings_router)
-dp.include_router(product_router)
+dp.include_router(product_statistics_router)
+dp.include_router(current_statistics_router)
 
 
 # Создаем планировщик

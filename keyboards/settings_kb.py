@@ -11,12 +11,8 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🏪 Управление магазинами", callback_data="manage_shops")
     )
     builder.row(
-        InlineKeyboardButton(text="📦 Управление продуктами", callback_data="manage_products")
+        InlineKeyboardButton(text="📦 Управление товарами", callback_data="manage_products")
     )
-    builder.row(
-        InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="back_to_main")
-    )
-
     return builder.as_markup()
 
 

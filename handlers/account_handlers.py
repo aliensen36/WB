@@ -5,7 +5,6 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from FSM.account_states import AddAccountStates, AccountManagementStates
 from database.account_manager import AccountManager
-from functions.wb_api import WBAPI
 from keyboards.account_kb import get_main_accounts_keyboard, get_accounts_keyboard, \
     get_cancel_keyboard, get_account_management_keyboard, get_account_delete_confirm_keyboard
 import logging
