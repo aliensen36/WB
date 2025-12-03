@@ -11,7 +11,6 @@ from functions.scheduler import StatisticsScheduler
 from functions.set_bot_commands import set_bot_commands
 from handlers.account_handlers import account_router
 from handlers.product_handlers import product_router
-from handlers.sales_funnel_handlers import sales_funnel_router
 from handlers.settings_handlers import settings_router
 from handlers.start_handlers import start_router
 from handlers.statistics_handlers import statistics_router
@@ -37,8 +36,6 @@ dp.include_router(account_router)
 dp.include_router(statistics_router)
 dp.include_router(settings_router)
 dp.include_router(product_router)
-dp.include_router(sales_funnel_router)
-
 
 
 # Создаем планировщик
