@@ -40,7 +40,6 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
             )
             return
 
-        # Берем первый магазин (как в оригинальном хендлере)
         account = all_accounts[0]
         account_name = account.account_name or f"Магазин {account.id}"
 
@@ -81,7 +80,7 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
             )
 
             # Ограничиваем количество товаров для вывода
-            products_to_show = sorted_products[:20]  # Показываем первые 20
+            products_to_show = sorted_products[:20]
 
             # Формируем заголовок
             days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
@@ -111,8 +110,8 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
                 response_text += f"   • В корзину: {carts_formatted}\n"
                 response_text += f"   • Конверсия в корзину: {product['conversion_to_cart']:.1f}%\n"
                 response_text += f"   • Конверсия в заказ: {product['conversion_to_order']:.1f}%\n"
-                response_text += f"   • Заказы: {orders_formatted} шт.\n"
-                response_text += f"   • Сумма заказов: {order_sum_formatted}\n\n"
+                response_text += f"   • Заказы: <b>{orders_formatted}</b> шт.\n"
+                response_text += f"   • Сумма заказов: <b>{order_sum_formatted}</b>\n\n"
 
             # Форматируем итоговые суммы
             total_order_sum_formatted = f"{stats['total_order_sum']:,.2f} ₽".replace(",", " ").replace(".", ",")
