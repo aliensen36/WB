@@ -109,46 +109,14 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
                     products_with_sales = [p for p in sorted_products if p['orders'] > 0]
 
                     if products_with_sales:
-                        # Начало сообщения для магазина
-                        response_text = f"<b>🏪 {account_name}</b>\n\n"
-
-                        # Добавляем товары с продажами
-                        for i, product in enumerate(products_with_sales, 1):
-                            # Берем кастомное название из БД, если есть, иначе название из API
-                            display_name = custom_names.get(product['article'])
-                            if not display_name:
-                                display_name = product['title']
-
-                            # Форматируем числа
-                            views_formatted = f"{product['views']:,}"
-                            carts_formatted = f"{product['carts']:,}"
-                            orders_formatted = f"{product['orders']:,}"
-                            order_sum_formatted = f"{product['order_sum']:,.2f} ₽".replace(",", " ").replace(".", ",")
-
-                            # Добавляем товар в формате из образца
-                            response_text += f"<b>{i}. {display_name}</b>\n"
-                            response_text += f"   • Артикул: {product['article']}\n"
-                            response_text += f"   • Просмотры: {views_formatted}\n"
-                            response_text += f"   • В корзине: {carts_formatted}\n"
-                            response_text += f"   • Конверсия в корзину: {product['conversion_to_cart']:.1f}%\n"
-                            response_text += f"   • Конверсия в заказ: {product['conversion_to_order']:.1f}%\n"
-                            response_text += f"   • <b>Заказы: {orders_formatted} шт.</b>\n"
-                            response_text += f"   • <b>Сумма заказов: {order_sum_formatted}</b>\n\n"
-
-                        # Итоги по магазину
-                        total_order_sum_formatted = f"{stats['total_order_sum']:,.2f} ₽".replace(",", " ").replace(".", ",")
-
-                        response_text += "<b>ИТОГО ПО МАГАЗИНУ</b>\n"
-                        response_text += f"<b>Заказов: {stats['total_orders']:,}</b>\n"
-                        response_text += f"<b>Заказано на сумму: {total_order_sum_formatted}</b>\n"
-                        response_text += f"Всего товаров: {stats['total_products']:,}\n"
-                        response_text += f"Товаров с продажами: {stats['products_with_sales']:,}\n"
-                        response_text += f"Общее просмотров: {stats['total_views']:,}\n"
-                        response_text += f"Конверсия в корзину: {stats['overall_cart_conversion']:.1f}%\n"
-                        response_text += f"Конверсия в заказ: {stats['overall_order_conversion']:.1f}%\n"
-
-                        # Отправляем сообщение
-                        await callback.message.answer(response_text)
+                        # Разбиваем на части и отправляем
+                        await send_store_statistics_parts(
+                            callback,
+                            account_name,
+                            products_with_sales,
+                            custom_names,
+                            stats
+                        )
 
                         successful_accounts += 1
 
@@ -157,7 +125,7 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
                         await callback.message.answer(
                             f"<b>🏪 {account_name}</b>\n\n"
                             f"Нет продаж за этот день\n\n"
-                            f"Статистика из API:\n"
+                            f"<i>Статистика из API:</i>\n"
                             f"Всего товаров: {stats['total_products']:,}\n"
                             f"Просмотров: {stats['total_views']:,}\n"
                             f"В корзину: {stats['total_carts']:,}\n"
@@ -168,7 +136,7 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
                     await callback.message.answer(
                         f"<b>🏪 {account_name}</b>\n\n"
                         f"Нет продаж за этот день\n\n"
-                        f"Статистика из API:\n"
+                        f"<i>Статистика из API:</i>\n"
                         f"Всего товаров: {stats['total_products']:,}\n"
                         f"Просмотров: {stats['total_views']:,}\n"
                         f"В корзину: {stats['total_carts']:,}\n"
@@ -190,8 +158,8 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
 
                 await callback.message.answer(
                     f"<b>🏪 {account_name}</b>\n"
-                    f"Ошибка: {display_error}\n"
-                    f"Детали: {error_message[:100]}"
+                    f"<b>Ошибка:</b> {display_error}\n"
+                    f"<i>Детали: {error_message[:100]}</i>"
                 )
 
                 # Задержка перед следующим магазином в случае ошибки
@@ -203,7 +171,7 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
 
         # Финальное сообщение
         await callback.message.answer(
-            f"Обработка завершена\n"
+            f"<b>Обработка завершена</b>\n"
             f"Успешно обработано: {successful_accounts} из {len(all_accounts)} магазинов",
             reply_markup=get_stats_keyboard()
         )
@@ -218,8 +186,84 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
             pass
 
         await callback.message.answer(
-            "Произошла непредвиденная ошибка\n"
-            f"Детали: {str(e)[:100]}\n"
+            "<b>Произошла непредвиденная ошибка</b>\n"
+            f"<i>Детали: {str(e)[:100]}</i>\n"
             "Попробуйте позже.",
             reply_markup=get_stats_keyboard()
         )
+
+
+async def send_store_statistics_parts(callback: CallbackQuery, account_name: str,
+                                      products_with_sales: list, custom_names: dict, stats: dict):
+    """Разбивает статистику магазина на части и отправляет отдельными сообщениями"""
+
+    # Максимальное количество товаров в одном сообщении (с HTML тегами нужно меньше)
+    MAX_PRODUCTS_PER_MESSAGE = 8
+
+    # Форматируем итоговые суммы
+    total_order_sum_formatted = f"{stats['total_order_sum']:,.2f} ₽".replace(",", " ").replace(".", ",")
+
+    # Отправляем заголовок магазина
+    await callback.message.answer(f"<b>🏪 {account_name}</b>")
+
+    # Разбиваем товары на части
+    total_products = len(products_with_sales)
+
+    for part_num, chunk_start in enumerate(range(0, total_products, MAX_PRODUCTS_PER_MESSAGE)):
+        chunk_end = min(chunk_start + MAX_PRODUCTS_PER_MESSAGE, total_products)
+        chunk = products_with_sales[chunk_start:chunk_end]
+
+        # Формируем часть сообщения
+        part_text = ""
+
+        # Если это первая часть и товаров много, добавляем информацию
+        if part_num == 0 and total_products > MAX_PRODUCTS_PER_MESSAGE:
+            part_text += f"<i>(товары 1-{MAX_PRODUCTS_PER_MESSAGE} из {total_products})</i>\n\n"
+
+        # Добавляем товары из текущего чанка
+        for i, product in enumerate(chunk, chunk_start + 1):
+            # Берем кастомное название из БД, если есть, иначе название из API
+            display_name = custom_names.get(product['article'])
+            if not display_name:
+                display_name = product['title']
+
+            # Форматируем числа
+            views_formatted = f"{product['views']:,}"
+            carts_formatted = f"{product['carts']:,}"
+            orders_formatted = f"{product['orders']:,}"
+            order_sum_formatted = f"{product['order_sum']:,.2f} ₽".replace(",", " ").replace(".", ",")
+
+            # Добавляем товар
+            part_text += f"<b>{i}. {display_name}</b>\n"
+            part_text += f"   • Артикул: {product['article']}\n"
+            part_text += f"   • Просмотры: {views_formatted}\n"
+            part_text += f"   • В корзине: {carts_formatted}\n"
+            part_text += f"   • Конверсия в корзину: {product['conversion_to_cart']:.1f}%\n"
+            part_text += f"   • Конверсия в заказ: {product['conversion_to_order']:.1f}%\n"
+            part_text += f"   • <b>Заказы: {orders_formatted} шт.</b>\n"
+            part_text += f"   • <b>Сумма заказов: {order_sum_formatted}</b>\n\n"
+
+        # Если это не последняя часть, добавляем информацию о продолжении
+        if chunk_end < total_products:
+            next_chunk_start = chunk_end
+            next_chunk_end = min(next_chunk_start + MAX_PRODUCTS_PER_MESSAGE, total_products)
+            part_text += f"<i>... продолжение ({next_chunk_start + 1}-{next_chunk_end}) ...</i>\n"
+
+        # Отправляем часть сообщения
+        await callback.message.answer(part_text)
+
+        # Небольшая задержка между сообщениями
+        await asyncio.sleep(0.3)
+
+    # Создаем итоговую часть
+    final_part = "<b>ИТОГО ПО МАГАЗИНУ</b>\n"
+    final_part += f"<b>Заказов: {stats['total_orders']:,}</b>\n"
+    final_part += f"<b>Заказано на сумму: {total_order_sum_formatted}</b>\n\n"
+    final_part += f"Всего товаров: {stats['total_products']:,}\n"
+    final_part += f"Товаров с продажами: {stats['products_with_sales']:,}\n"
+    final_part += f"Общее просмотров: {stats['total_views']:,}\n"
+    final_part += f"Конверсия в корзину: {stats['overall_cart_conversion']:.1f}%\n"
+    final_part += f"Конверсия в заказ: {stats['overall_order_conversion']:.1f}%\n"
+
+    # Отправляем итоговую часть
+    await callback.message.answer(final_part)
