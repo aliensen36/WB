@@ -208,7 +208,7 @@ class CurrentStatistics:
             if not order.get("isCancel", False):
                 total_amount += float(order.get("priceWithDisc", 0)) * quantity
 
-        logger.info(f"Рассчитано заказов: {total_quantity} шт. на {total_amount} ₽")
+        logger.info(f"Рассчитано заказов: {total_quantity} шт. на {total_amount} р.")
         return total_quantity, total_amount
 
     def _calculate_sales_stats(self, sales: List[Dict]) -> Tuple[int, float]:
@@ -226,7 +226,7 @@ class CurrentStatistics:
                 total_quantity += quantity
                 total_amount += float(sale.get("priceWithDisc", 0)) * quantity
 
-        logger.info(f"Рассчитано продаж: {total_quantity} шт. на {total_amount} ₽")
+        logger.info(f"Рассчитано продаж: {total_quantity} шт. на {total_amount} р.")
         return total_quantity, total_amount
 
     async def get_today_stats_for_message(self) -> Dict[str, any]:

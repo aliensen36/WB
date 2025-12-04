@@ -19,6 +19,7 @@ from handlers.products_settings_handlers import products_settings_router
 from handlers.settings_handlers import settings_router
 from handlers.start_handlers import start_router
 from handlers.statistics_handlers import statistics_router
+from handlers.today_statistics_handlers import today_stats_router
 from middlewares.chat_auth import ChatAuthMiddleware
 from middlewares.db import DataBaseSession
 from middlewares.errors import ErrorMiddleware
@@ -51,6 +52,8 @@ dp.include_router(product_statistics_router)
 dp.include_router(current_statistics_router)
 dp.include_router(accounts_settings_router)
 dp.include_router(products_settings_router)
+dp.include_router(today_stats_router)
+
 
 # Создаем планировщик
 scheduler = StatisticsScheduler(bot, session_maker, admin_chat_id=config.ADMIN_CHAT_ID)
