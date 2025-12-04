@@ -67,13 +67,13 @@ async def handle_today_quick_stats(callback: CallbackQuery, session: AsyncSessio
                 buyout_sum_formatted = format_currency(summary['total_buyout_sum'])
 
                 # Формируем сообщение в нужном формате
-                result_message = "<b>📊 Статистика всех магазинов</b>\n\n"
+                result_message = "<b>📊 Быстрая сводка</b>\n\n"
                 result_message += f"<b>📅 За сегодня ({date_str})</b>\n\n"
                 result_message += f"<b>{account_name}</b>\n"
                 result_message += f"🛒 <b>Заказы:</b> {summary['total_orders']:,} шт. на {order_sum_formatted}\n"
                 result_message += f"📈 <b>Выкупы:</b> {summary['total_buyouts']:,} шт. на {buyout_sum_formatted}\n"
             else:
-                result_message = "<b>📊 Статистика всех магазинов</b>\n\n"
+                result_message = "<b>📊 Быстрая сводка</b>\n\n"
                 result_message += f"<b>📅 За сегодня ({date_str})</b>\n\n"
                 result_message += f"<b>{account_name}</b>\n"
                 result_message += f"📭 <b>Нет данных за сегодня</b>\n"
@@ -86,7 +86,7 @@ async def handle_today_quick_stats(callback: CallbackQuery, session: AsyncSessio
             else:
                 display_error = "⚠️ Ошибка получения данных"
 
-            result_message = "<b>📊 Статистика всех магазинов</b>\n\n"
+            result_message = "<b>📊 Быстрая сводка</b>\n\n"
             result_message += f"<b>📅 За сегодня ({date_str})</b>\n\n"
             result_message += f"<b>{account_name}</b>\n"
             result_message += f"❌ <b>{display_error}</b>\n"
