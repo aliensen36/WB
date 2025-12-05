@@ -221,6 +221,7 @@ class YesterdayProductStatistics:
     async def get_yesterday_product_stats(self) -> Dict[str, any]:
         """
         Получить агрегированную статистику по товарам за вчера
+        С добавлением buyoutCount и buyoutSum
         """
         try:
             # Получаем данные
@@ -235,12 +236,13 @@ class YesterdayProductStatistics:
                     "total_carts": 0,
                     "total_orders": 0,
                     "total_order_sum": 0.0,
-                    "total_buyouts": 0,
-                    "total_buyout_sum": 0.0,
+                    "total_buyouts": 0,           # Добавлено
+                    "total_buyout_sum": 0.0,      # Добавлено
                     "active_products": 0,
                     "products_with_sales": 0,
+                    "products_with_buyouts": 0,   # Добавлено
                     "products": [],
-                    "all_products": []  # Добавляем поле со всеми товарами
+                    "all_products": []
                 }
 
             # Рассчитываем статистику
@@ -249,10 +251,11 @@ class YesterdayProductStatistics:
             total_carts = 0
             total_orders = 0
             total_order_sum = 0.0
-            total_buyouts = 0
-            total_buyout_sum = 0.0
+            total_buyouts = 0           # Добавлено
+            total_buyout_sum = 0.0      # Добавлено
             active_products = 0
             products_with_sales = 0
+            products_with_buyouts = 0   # Добавлено
 
             for item in all_data:
                 product = item.get("product", {})
@@ -269,17 +272,20 @@ class YesterdayProductStatistics:
                 carts = statistic.get("cartCount", 0)
                 orders = statistic.get("orderCount", 0)
                 order_sum = statistic.get("orderSum", 0)
-                buyouts = statistic.get("buyoutCount", 0)
-                buyout_sum = statistic.get("buyoutSum", 0)
+                buyouts = statistic.get("buyoutCount", 0)      # Добавлено
+                buyout_sum = statistic.get("buyoutSum", 0)     # Добавлено
 
                 # Проверяем активность
-                has_activity = views > 0 or carts > 0 or orders > 0
-                has_sales = orders > 0 or buyouts > 0
+                has_activity = views > 0 or carts > 0 or orders > 0 or buyouts > 0
+                has_sales = orders > 0
+                has_buyouts = buyouts > 0                      # Добавлено
 
                 if has_activity:
                     active_products += 1
                 if has_sales:
                     products_with_sales += 1
+                if has_buyouts:                                # Добавлено
+                    products_with_buyouts += 1
 
                 # Используем vendorCode или nmId как ключ
                 article = vendor_code if vendor_code else str(nm_id)
@@ -295,10 +301,11 @@ class YesterdayProductStatistics:
                         'carts': 0,
                         'orders': 0,
                         'order_sum': 0.0,
-                        'buyouts': 0,
-                        'buyout_sum': 0.0,
+                        'buyouts': 0,           # Добавлено
+                        'buyout_sum': 0.0,      # Добавлено
                         'conversion_to_cart': 0.0,
-                        'conversion_to_order': 0.0
+                        'conversion_to_order': 0.0,
+                        'buyout_percent': 0.0   # Добавлено: процент выкупа
                     }
 
                 # Обновляем статистику
@@ -306,27 +313,30 @@ class YesterdayProductStatistics:
                 product_stats[article]['carts'] += carts
                 product_stats[article]['orders'] += orders
                 product_stats[article]['order_sum'] += order_sum
-                product_stats[article]['buyouts'] += buyouts
-                product_stats[article]['buyout_sum'] += buyout_sum
+                product_stats[article]['buyouts'] += buyouts        # Добавлено
+                product_stats[article]['buyout_sum'] += buyout_sum  # Добавлено
 
                 # Рассчитываем конверсии
                 if views > 0:
                     product_stats[article]['conversion_to_cart'] = (carts / views) * 100
                 if carts > 0:
                     product_stats[article]['conversion_to_order'] = (orders / carts) * 100
+                # Рассчитываем процент выкупа
+                if orders > 0:
+                    product_stats[article]['buyout_percent'] = (buyouts / orders) * 100
 
                 # Общая статистика
                 total_views += views
                 total_carts += carts
                 total_orders += orders
                 total_order_sum += order_sum
-                total_buyouts += buyouts
-                total_buyout_sum += buyout_sum
+                total_buyouts += buyouts          # Добавлено
+                total_buyout_sum += buyout_sum    # Добавлено
 
-            # Сортируем товары по сумме выкупов
+            # Сортируем товары по сумме выкупов (теперь у нас есть этот показатель)
             sorted_products = sorted(
                 product_stats.items(),
-                key=lambda x: x[1]['buyout_sum'],
+                key=lambda x: x[1]['buyout_sum'],  # Сортировка по сумме выкупов
                 reverse=True
             )
 
@@ -347,8 +357,9 @@ class YesterdayProductStatistics:
                     'carts': stats['carts'],
                     'orders': stats['orders'],
                     'order_sum': stats['order_sum'],
-                    'buyouts': stats['buyouts'],
-                    'buyout_sum': stats['buyout_sum'],
+                    'buyouts': stats['buyouts'],          # Добавлено
+                    'buyout_sum': stats['buyout_sum'],    # Добавлено
+                    'buyout_percent': stats['buyout_percent'],  # Добавлено
                     'conversion_to_cart': stats['conversion_to_cart'],
                     'conversion_to_order': stats['conversion_to_order']
                 })
@@ -356,6 +367,8 @@ class YesterdayProductStatistics:
             logger.info(f"Обработано артикулов: {len(product_stats)}")
             logger.info(f"Товаров с активностью: {active_products}")
             logger.info(f"Товаров с продажами: {products_with_sales}")
+            logger.info(f"Товаров с выкупами: {products_with_buyouts}")
+            logger.info(f"Всего выкупов: {total_buyouts} шт. на {total_buyout_sum:.2f} руб.")
 
             return {
                 "date": date_str_dd_mm_yyyy,
@@ -364,123 +377,18 @@ class YesterdayProductStatistics:
                 "total_carts": total_carts,
                 "total_orders": total_orders,
                 "total_order_sum": total_order_sum,
-                "total_buyouts": total_buyouts,
-                "total_buyout_sum": total_buyout_sum,
+                "total_buyouts": total_buyouts,          # Добавлено
+                "total_buyout_sum": total_buyout_sum,    # Добавлено
                 "active_products": active_products,
                 "products_with_sales": products_with_sales,
+                "products_with_buyouts": products_with_buyouts,  # Добавлено
                 "products": formatted_products[:50],  # Топ 50 для отображения
                 "all_products": formatted_products,   # Все товары для сохранения в БД
                 "overall_cart_conversion": (total_carts / total_views * 100) if total_views > 0 else 0,
-                "overall_order_conversion": (total_orders / total_carts * 100) if total_carts > 0 else 0
+                "overall_order_conversion": (total_orders / total_carts * 100) if total_carts > 0 else 0,
+                "overall_buyout_percent": (total_buyouts / total_orders * 100) if total_orders > 0 else 0  # Добавлено
             }
 
         except Exception as e:
             logger.error(f"Ошибка при получении статистики по товарам: {e}")
             raise
-
-    async def get_product_stats_for_message(self, limit_products: int = 20) -> Dict[str, any]:
-        """
-        Получить статистику по товарам за вчера, оптимизированную для отображения в сообщении
-        """
-        try:
-            stats = await self.get_yesterday_product_stats()
-
-            # Форматируем суммы для вывода
-            formatted_stats = {
-                "date": stats["date"],
-                "summary": {
-                    "total_products": stats["total_products"],
-                    "active_products": stats["active_products"],
-                    "products_with_sales": stats["products_with_sales"],
-                    "total_views": stats["total_views"],
-                    "total_carts": stats["total_carts"],
-                    "total_orders": stats["total_orders"],
-                    "total_order_sum": stats["total_order_sum"],
-                    "total_buyouts": stats["total_buyouts"],
-                    "total_buyout_sum": stats["total_buyout_sum"],
-                    "overall_cart_conversion": stats["overall_cart_conversion"],
-                    "overall_order_conversion": stats["overall_order_conversion"]
-                },
-                "top_products": []
-            }
-
-            # Форматируем топ товаров
-            for i, product in enumerate(stats["products"][:limit_products], 1):
-                formatted_orders_sum = f"{product['order_sum']:,.2f} ₽".replace(",", " ").replace(".", ",")
-                formatted_buyout_sum = f"{product['buyout_sum']:,.2f} ₽".replace(",", " ").replace(".", ",")
-
-                formatted_stats["top_products"].append({
-                    "position": i,
-                    "article": product["article"],
-                    "title": product["title"],
-                    "nm_id": product["nm_id"],
-                    "views": product["views"],
-                    "carts": product["carts"],
-                    "orders": product["orders"],
-                    "order_sum": formatted_orders_sum,
-                    "buyouts": product["buyouts"],
-                    "buyout_sum": formatted_buyout_sum,
-                    "conversion_to_cart": product["conversion_to_cart"],
-                    "conversion_to_order": product["conversion_to_order"]
-                })
-
-            return formatted_stats
-
-        except Exception as e:
-            logger.error(f"Ошибка при подготовке статистики для сообщения: {e}")
-            raise
-
-    async def get_quick_yesterday_stats(self) -> Dict[str, any]:
-        """
-        Быстрая статистика (без детализации по товарам, только общие цифры)
-        """
-        try:
-            # Получаем только первую страницу для быстрого расчета
-            date_str_dd_mm_yyyy, date_str_yyyy_mm_dd, yesterday_date = self._get_yesterday_date()
-            payload = self._prepare_payload(yesterday_date, limit=100, offset=0)
-            data = await self._make_request(payload)
-
-            if not data:
-                return {
-                    "date": date_str_dd_mm_yyyy,
-                    "has_data": False,
-                    "total_products": 0,
-                    "total_views": 0,
-                    "total_orders": 0,
-                    "total_buyouts": 0
-                }
-
-            # Извлекаем продукты
-            products = []
-            if "data" in data and "products" in data["data"]:
-                products = data["data"]["products"]
-            elif "products" in data:
-                products = data["products"]
-
-            # Рассчитываем общие показатели
-            total_views = 0
-            total_orders = 0
-            total_buyouts = 0
-
-            for item in products:
-                statistic = item.get("statistic", {}).get("selected", {})
-                total_views += statistic.get("openCount", 0)
-                total_orders += statistic.get("orderCount", 0)
-                total_buyouts += statistic.get("buyoutCount", 0)
-
-            return {
-                "date": date_str_dd_mm_yyyy,
-                "has_data": True,
-                "total_products": len(products),
-                "total_views": total_views,
-                "total_orders": total_orders,
-                "total_buyouts": total_buyouts
-            }
-
-        except Exception as e:
-            logger.error(f"Ошибка при получении быстрой статистики: {e}")
-            return {
-                "date": (datetime.now() - timedelta(days=1)).strftime("%d.%m.%Y"),
-                "has_data": False,
-                "error": str(e)
-            }

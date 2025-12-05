@@ -16,14 +16,8 @@ def get_stats_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text="📈 Статистика за вчера",
+                text="📈 Статистика товаров за вчера",
                 callback_data="yesterday_stats"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="⚡ Быстрая сводка за сегодня",
-                callback_data="today_quick_stats"
             )
         ]
     ])

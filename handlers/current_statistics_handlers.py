@@ -19,7 +19,6 @@ async def handle_current_stats(callback: CallbackQuery, session: AsyncSession):
     """Показать статистику всех магазинов за сегодня для инлайн-кнопки"""
     await callback.answer()
     try:
-        # ТОЧНО ТАК ЖЕ как в старом хендлере
         loading_msg = await callback.message.answer(
             "📊 <b>Получение статистики...</b>\n\n"
             "🔄 Загружаем данные по всем магазинам...\n"
@@ -54,18 +53,6 @@ async def handle_current_stats(callback: CallbackQuery, session: AsyncSession):
                 # Задержка между запросами к разным аккаунтам
                 if i > 0:
                     await asyncio.sleep(5)
-
-                # УБРАЛ обновление прогресса! Оставляем только первоначальное сообщение
-                # if i % 3 == 0:
-                #     try:
-                #         await loading_msg.edit_text(
-                #             f"📊 <b>Получение статистики...</b>\n\n"
-                #             f"🔄 Обработано {i}/{len(all_accounts)} магазинов\n"
-                #             f"✅ Успешно: {successful_accounts}\n"
-                #             f"❌ Ошибки: {failed_accounts}"
-                #         )
-                #     except:
-                #         pass
 
                 wb_api = CurrentStatistics(account.api_key)
                 stats = await wb_api.get_today_stats_for_message()
