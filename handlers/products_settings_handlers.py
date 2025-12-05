@@ -22,7 +22,7 @@ products_settings_router = Router()
 
 # Константы для пагинации
 ACCOUNTS_PER_PAGE = 5  # Максимальное количество магазинов на странице
-PRODUCTS_PER_PAGE = 8  # Максимальное количество товаров на странице
+PRODUCTS_PER_PAGE = 5  # Максимальное количество товаров на странице
 
 
 @products_settings_router.callback_query(F.data == "manage_products")
@@ -308,13 +308,20 @@ async def show_products_page_for_account(
     for product in products[start_idx:end_idx]:
         display_name = product.custom_name or product.supplier_article
         # Обрезаем слишком длинные названия
-        if len(display_name) > 30:
-            display_name = display_name[:27] + "..."
+        if len(display_name) > 25:  # Уменьшил лимит, т.к. добавляем артикул
+            display_name = display_name[:22] + "..."
+
+        # Добавляем артикул перед названием в формате: (артикул) название
+        button_text = f"({product.supplier_article}) {display_name}"
+
+        # Обрезаем, если вся строка слишком длинная
+        if len(button_text) > 35:
+            button_text = button_text[:32] + "..."
 
         callback_data = f"select_product_{action}_{product.supplier_article}"
 
         builder.add(InlineKeyboardButton(
-            text=f"📦 {display_name}",
+            text=button_text,
             callback_data=callback_data
         ))
 
