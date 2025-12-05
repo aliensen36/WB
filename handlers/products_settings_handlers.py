@@ -1,4 +1,4 @@
-# products_settings_handlers.py
+# handlers/products_settings_handlers.py
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
@@ -14,10 +14,15 @@ from keyboards.account_kb import get_shops_management_keyboard, get_cancel_inlin
 from keyboards.product_kb import get_products_management_keyboard
 from keyboards.settings_kb import get_settings_keyboard
 import logging
+import math
 
 logger = logging.getLogger(__name__)
 
 products_settings_router = Router()
+
+# Константы для пагинации
+ACCOUNTS_PER_PAGE = 5  # Максимальное количество магазинов на странице
+PRODUCTS_PER_PAGE = 10  # Максимальное количество товаров на странице
 
 
 @products_settings_router.callback_query(F.data == "manage_products")
@@ -38,6 +43,7 @@ async def manage_products(callback: CallbackQuery, state: FSMContext, session: A
     products_text += "Здесь вы можете:\n"
     products_text += "• 📝 Изменить название товара для отчетов\n"
     products_text += "• 📋 Просмотреть список всех товаров\n\n"
+    products_text += f"<b>Всего магазинов:</b> {len(all_accounts)}\n"
     products_text += "Выберите действие:"
 
     await callback.message.edit_text(
@@ -59,33 +65,159 @@ async def edit_product_name_start(callback: CallbackQuery, state: FSMContext, se
         )
         return
 
+    # Показываем первую страницу магазинов
+    await show_accounts_page(callback, session, page=0, action="edit")
+
+
+@products_settings_router.callback_query(F.data == "show_all_products")
+async def show_all_products_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Показать все товары"""
+    account_manager = AccountManager(session)
+    all_accounts = await account_manager.get_all_accounts()
+
+    if not all_accounts:
+        await callback.message.edit_text(
+            "📭 <b>Нет магазинов для отображения товаров</b>",
+            reply_markup=get_products_management_keyboard()
+        )
+        return
+
+    # Показываем первую страницу магазинов
+    await show_accounts_page(callback, session, page=0, action="show")
+
+
+async def show_accounts_page(callback: CallbackQuery, session: AsyncSession, page: int, action: str):
+    """Показать страницу со списком магазинов"""
+    account_manager = AccountManager(session)
+    all_accounts = await account_manager.get_all_accounts()
+
+    if not all_accounts:
+        return
+
+    total_accounts = len(all_accounts)
+    total_pages = math.ceil(total_accounts / ACCOUNTS_PER_PAGE)
+
+    # Проверяем корректность номера страницы
+    if page < 0:
+        page = 0
+    elif page >= total_pages:
+        page = total_pages - 1
+
+    # Определяем начало и конец для текущей страницы
+    start_idx = page * ACCOUNTS_PER_PAGE
+    end_idx = min(start_idx + ACCOUNTS_PER_PAGE, total_accounts)
+
     builder = InlineKeyboardBuilder()
-    for account in all_accounts:
+
+    # Добавляем кнопки магазинов для текущей страницы
+    for account in all_accounts[start_idx:end_idx]:
         account_name = account.account_name or f"Магазин {account.id}"
+
+        # Обрезаем слишком длинные названия
+        if len(account_name) > 25:
+            account_name = account_name[:22] + "..."
+
+        callback_data = f"select_account_{action}_{account.id}"
+
         builder.add(InlineKeyboardButton(
             text=f"🏪 {account_name}",
-            callback_data=f"select_account_for_product_{account.id}"
+            callback_data=callback_data
         ))
-    builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="manage_products"))
-    builder.adjust(1)
+
+    builder.adjust(1)  # По одной кнопке в строке
+
+    # Добавляем кнопки навигации по страницам, если нужно
+    if total_pages > 1:
+        navigation_buttons = []
+
+        # Кнопка "Назад" если не первая страница
+        if page > 0:
+            navigation_buttons.append(InlineKeyboardButton(
+                text="◀️ Предыдущая",
+                callback_data=f"accounts_page_{action}_{page - 1}"
+            ))
+
+        # Индикатор страницы
+        navigation_buttons.append(InlineKeyboardButton(
+            text=f"📄 {page + 1}/{total_pages}",
+            callback_data="noop"
+        ))
+
+        # Кнопка "Вперед" если не последняя страница
+        if page < total_pages - 1:
+            navigation_buttons.append(InlineKeyboardButton(
+                text="Следующая ▶️",
+                callback_data=f"accounts_page_{action}_{page + 1}"
+            ))
+
+        builder.row(*navigation_buttons)
+
+    # Добавляем кнопку "Назад"
+    builder.row(InlineKeyboardButton(
+        text="⬅️ Назад",
+        callback_data="manage_products"
+    ))
+
+    action_text = {
+        "edit": "изменить название товара",
+        "show": "просмотреть список товаров"
+    }.get(action, "")
 
     await callback.message.edit_text(
-        "🏪 <b>Выберите магазин:</b>\n\n"
-        "Выберите магазин, для которого хотите изменить название товара:",
+        f"🏪 <b>Выберите магазин:</b>\n\n"
+        f"Выберите магазин, для которого хотите {action_text}.\n"
+        f"<b>Всего магазинов:</b> {total_accounts}\n"
+        f"<b>Страница:</b> {page + 1}/{total_pages}\n"
+        f"<b>Показано магазинов:</b> {start_idx + 1}-{end_idx}",
         reply_markup=builder.as_markup()
     )
-    await state.set_state(ProductManagementStates.waiting_for_account_selection)
 
 
-@products_settings_router.callback_query(F.data.startswith("select_account_for_product_"))
-async def select_account_for_product(
+@products_settings_router.callback_query(F.data.startswith("accounts_page_"))
+async def handle_accounts_pagination(callback: CallbackQuery, session: AsyncSession):
+    """Обработка пагинации по магазинам"""
+    try:
+        # Разбираем callback_data: accounts_page_edit_2 или accounts_page_show_0
+        parts = callback.data.split("_")
+        action = parts[2]  # edit или show
+        page = int(parts[3])  # номер страницы
+
+        await show_accounts_page(callback, session, page, action)
+    except Exception as e:
+        logger.error(f"Ошибка при пагинации магазинов: {e}")
+        await callback.answer("❌ Ошибка переключения страницы")
+
+
+@products_settings_router.callback_query(F.data.startswith("select_account_"))
+async def select_account_for_action(
         callback: CallbackQuery,
         state: FSMContext,
         session: AsyncSession
 ):
-    """Выбор магазина для изменения названия товара"""
-    account_id = int(callback.data.split("_")[-1])
+    """Выбор магазина для действия (edit или show)"""
+    try:
+        # Разбираем callback_data: select_account_edit_123 или select_account_show_456
+        parts = callback.data.split("_")
+        action = parts[2]  # edit или show
+        account_id = int(parts[3])
 
+        if action == "edit":
+            await handle_select_account_for_edit(callback, state, session, account_id)
+        elif action == "show":
+            await handle_select_account_for_show(callback, session, account_id)
+
+    except Exception as e:
+        logger.error(f"Ошибка при выборе магазина: {e}")
+        await callback.answer("❌ Ошибка выбора магазина")
+
+
+async def handle_select_account_for_edit(
+        callback: CallbackQuery,
+        state: FSMContext,
+        session: AsyncSession,
+        account_id: int
+):
+    """Обработка выбора магазина для редактирования товаров"""
     # Сохраняем ID магазина в состоянии
     await state.update_data(account_id=account_id)
 
@@ -111,53 +243,181 @@ async def select_account_for_product(
         await state.clear()
         return
 
+    # Показываем товары с пагинацией (если их много)
+    await show_products_page_for_account(callback, session, account, products, page=0, action="edit")
+
+
+async def handle_select_account_for_show(
+        callback: CallbackQuery,
+        session: AsyncSession,
+        account_id: int
+):
+    """Обработка выбора магазина для просмотра товаров"""
+    account_manager = AccountManager(session)
+    account = await account_manager.get_account_by_id(account_id)
+
+    if not account:
+        await callback.answer("❌ Магазин не найден")
+        return
+
+    product_manager = ProductManager(session)
+    products = await product_manager.get_all_products(account_id)
+
+    account_name = account.account_name or f"Магазин {account.id}"
+
+    if not products:
+        builder = InlineKeyboardBuilder()
+        builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="show_all_products"))
+
+        await callback.message.edit_text(
+            f"📭 <b>В магазине \"{account_name}\" нет товаров</b>\n\n"
+            f"Добавьте товары через функционал выгрузки отчетов.",
+            reply_markup=builder.as_markup()
+        )
+        return
+
+    # Показываем товары с пагинацией (если их много)
+    await show_products_page_for_account(callback, session, account, products, page=0, action="show")
+
+
+async def show_products_page_for_account(
+        callback: CallbackQuery,
+        session: AsyncSession,
+        account,
+        products,
+        page: int,
+        action: str
+):
+    """Показать страницу с товарами конкретного магазина"""
+    total_products = len(products)
+    total_pages = math.ceil(total_products / PRODUCTS_PER_PAGE)
+
+    # Проверяем корректность номера страницы
+    if page < 0:
+        page = 0
+    elif page >= total_pages:
+        page = total_pages - 1
+
+    # Определяем начало и конец для текущей страницы
+    start_idx = page * PRODUCTS_PER_PAGE
+    end_idx = min(start_idx + PRODUCTS_PER_PAGE, total_products)
+
     builder = InlineKeyboardBuilder()
 
-    # Показываем только первые 50 товаров для удобства
-    for product in products[:50]:
+    # Добавляем кнопки товаров для текущей страницы
+    for product in products[start_idx:end_idx]:
         display_name = product.custom_name or product.supplier_article
         # Обрезаем слишком длинные названия
         if len(display_name) > 30:
             display_name = display_name[:27] + "..."
 
+        callback_data = f"select_product_{action}_{product.supplier_article}"
+
         builder.add(InlineKeyboardButton(
             text=f"📦 {display_name}",
-            callback_data=f"select_product_{product.supplier_article}"
+            callback_data=callback_data
         ))
 
-    # Если товаров больше 50, добавляем сообщение
-    if len(products) > 50:
-        builder.add(InlineKeyboardButton(
-            text=f"📋 Показано 50 из {len(products)} товаров",
+    builder.adjust(1)
+
+    # Добавляем кнопки навигации по страницам, если нужно
+    if total_pages > 1:
+        navigation_buttons = []
+
+        if page > 0:
+            navigation_buttons.append(InlineKeyboardButton(
+                text="◀️ Предыдущая",
+                callback_data=f"products_page_{account.id}_{action}_{page - 1}"
+            ))
+
+        navigation_buttons.append(InlineKeyboardButton(
+            text=f"📄 {page + 1}/{total_pages}",
             callback_data="noop"
         ))
 
-    builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="edit_product_name"))
-    builder.adjust(1)
+        if page < total_pages - 1:
+            navigation_buttons.append(InlineKeyboardButton(
+                text="Следующая ▶️",
+                callback_data=f"products_page_{account.id}_{action}_{page + 1}"
+            ))
+
+        builder.row(*navigation_buttons)
+
+    # Кнопка "Назад" в зависимости от действия
+    back_callback = "edit_product_name" if action == "edit" else "show_all_products"
+    builder.row(InlineKeyboardButton(
+        text="⬅️ Назад к магазинам",
+        callback_data=back_callback
+    ))
 
     account_name = account.account_name or f"Магазин {account.id}"
 
     await callback.message.edit_text(
         f"🏪 <b>Магазин: {account_name}</b>\n\n"
-        f"📦 <b>Выберите товар для изменения названия:</b>\n"
-        f"<i>(Всего товаров: {len(products)})</i>",
+        f"📦 <b>Выберите товар:</b>\n"
+        f"<b>Всего товаров в магазине:</b> {total_products}\n"
+        f"<b>Страница товаров:</b> {page + 1}/{total_pages}\n"
+        f"<b>Показано товаров:</b> {start_idx + 1}-{end_idx}",
         reply_markup=builder.as_markup()
     )
-    await state.set_state(ProductManagementStates.waiting_for_article_selection)
 
 
-@products_settings_router.callback_query(
-    ProductManagementStates.waiting_for_article_selection,
-    F.data.startswith("select_product_")
-)
-async def select_product_for_rename(
+@products_settings_router.callback_query(F.data.startswith("products_page_"))
+async def handle_products_pagination(callback: CallbackQuery, session: AsyncSession):
+    """Обработка пагинации по товарам"""
+    try:
+        # Разбираем callback_data: products_page_123_edit_2
+        parts = callback.data.split("_")
+        account_id = int(parts[2])
+        action = parts[3]  # edit или show
+        page = int(parts[4])
+
+        account_manager = AccountManager(session)
+        account = await account_manager.get_account_by_id(account_id)
+
+        if not account:
+            await callback.answer("❌ Магазин не найден")
+            return
+
+        product_manager = ProductManager(session)
+        products = await product_manager.get_all_products(account_id)
+
+        await show_products_page_for_account(callback, session, account, products, page, action)
+    except Exception as e:
+        logger.error(f"Ошибка при пагинации товаров: {e}")
+        await callback.answer("❌ Ошибка переключения страницы")
+
+
+@products_settings_router.callback_query(F.data.startswith("select_product_"))
+async def select_product_for_action(
         callback: CallbackQuery,
         state: FSMContext,
         session: AsyncSession
 ):
-    """Выбор товара для изменения названия"""
-    supplier_article = callback.data.replace("select_product_", "")
+    """Выбор товара для действия (edit или show)"""
+    try:
+        # Разбираем callback_data: select_product_edit_ABC123 или select_product_show_DEF456
+        parts = callback.data.split("_")
+        action = parts[2]  # edit или show
+        supplier_article = "_".join(parts[3:])  # Восстанавливаем артикул
 
+        if action == "edit":
+            await handle_select_product_for_edit(callback, state, session, supplier_article)
+        elif action == "show":
+            await handle_select_product_for_show(callback, session, supplier_article)
+
+    except Exception as e:
+        logger.error(f"Ошибка при выборе товара: {e}")
+        await callback.answer("❌ Ошибка выбора товара")
+
+
+async def handle_select_product_for_edit(
+        callback: CallbackQuery,
+        state: FSMContext,
+        session: AsyncSession,
+        supplier_article: str
+):
+    """Обработка выбора товара для редактирования"""
     # Получаем данные из состояния
     data = await state.get_data()
     account_id = data.get("account_id")
@@ -202,6 +462,79 @@ async def select_product_for_rename(
     await state.set_state(ProductManagementStates.waiting_for_new_name)
 
 
+async def handle_select_product_for_show(
+        callback: CallbackQuery,
+        session: AsyncSession,
+        supplier_article: str
+):
+    """Обработка выбора товара для просмотра"""
+    # Показываем детальную информацию о товаре
+    # Находим товар в базе
+    product_manager = ProductManager(session)
+
+    # Нужно найти, к какому магазину принадлежит товар
+    account_manager = AccountManager(session)
+    all_accounts = await account_manager.get_all_accounts()
+
+    found_account = None
+    found_product = None
+
+    for account in all_accounts:
+        products = await product_manager.get_all_products(account.id)
+        for product in products:
+            if product.supplier_article == supplier_article:
+                found_account = account
+                found_product = product
+                break
+        if found_product:
+            break
+
+    if not found_product:
+        await callback.answer("❌ Товар не найден")
+        return
+
+    account_name = found_account.account_name or f"Магазин {found_account.id}"
+    display_name = found_product.custom_name or supplier_article
+
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(
+        text="⬅️ Назад к товарам",
+        callback_data=f"show_products_account_{found_account.id}"
+    ))
+
+    await callback.message.edit_text(
+        f"📦 <b>Информация о товаре</b>\n\n"
+        f"🏪 <b>Магазин:</b> {account_name}\n"
+        f"📋 <b>Артикул поставщика:</b> <code>{supplier_article}</code>\n"
+        f"📝 <b>Название в системе:</b> {display_name}\n\n"
+        f"<i>Чтобы изменить название, нажмите \"📝 Изменить название товара\" в меню управления товарами</i>",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@products_settings_router.callback_query(F.data.startswith("show_products_account_"))
+async def show_products_for_account_from_detail(
+        callback: CallbackQuery,
+        session: AsyncSession
+):
+    """Возврат к списку товаров магазина из детального просмотра"""
+    account_id = int(callback.data.split("_")[-1])
+
+    account_manager = AccountManager(session)
+    account = await account_manager.get_account_by_id(account_id)
+
+    if not account:
+        await callback.answer("❌ Магазин не найден")
+        return
+
+    product_manager = ProductManager(session)
+    products = await product_manager.get_all_products(account_id)
+
+    await show_products_page_for_account(callback, session, account, products, page=0, action="show")
+
+
+# Остальной код остается без изменений
 @products_settings_router.callback_query(F.data == "noop")
 async def handle_noop(callback: CallbackQuery):
     """Обработчик для кнопок без действия"""
@@ -294,96 +627,6 @@ async def process_new_product_name(
 
     # Очищаем состояние
     await state.clear()
-
-
-@products_settings_router.callback_query(F.data == "show_all_products")
-async def show_all_products_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
-    """Показать все товары"""
-    account_manager = AccountManager(session)
-    all_accounts = await account_manager.get_all_accounts()
-
-    if not all_accounts:
-        await callback.message.edit_text(
-            "📭 <b>Нет магазинов для отображения товаров</b>",
-            reply_markup=get_products_management_keyboard()
-        )
-        return
-
-    builder = InlineKeyboardBuilder()
-    for account in all_accounts:
-        account_name = account.account_name or f"Магазин {account.id}"
-        builder.add(InlineKeyboardButton(
-            text=f"🏪 {account_name}",
-            callback_data=f"show_products_account_{account.id}"
-        ))
-    builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="manage_products"))
-    builder.adjust(1)
-
-    await callback.message.edit_text(
-        "🏪 <b>Выберите магазин:</b>\n\n"
-        "Выберите магазин, для которого хотите просмотреть список товаров:",
-        reply_markup=builder.as_markup()
-    )
-
-
-@products_settings_router.callback_query(F.data.startswith("show_products_account_"))
-async def show_products_for_account(
-        callback: CallbackQuery,
-        session: AsyncSession
-):
-    """Показать товары для выбранного магазина"""
-    account_id = int(callback.data.split("_")[-1])
-
-    account_manager = AccountManager(session)
-    account = await account_manager.get_account_by_id(account_id)
-
-    if not account:
-        await callback.answer("❌ Магазин не найден")
-        return
-
-    product_manager = ProductManager(session)
-    products = await product_manager.get_all_products(account_id)
-
-    account_name = account.account_name or f"Магазин {account.id}"
-
-    if not products:
-        builder = InlineKeyboardBuilder()
-        builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="show_all_products"))
-
-        await callback.message.edit_text(
-            f"📭 <b>В магазине \"{account_name}\" нет товаров</b>\n\n"
-            f"Добавьте товары через функционал выгрузки отчетов.",
-            reply_markup=builder.as_markup()
-        )
-        return
-
-    # Формируем сообщение с товарами
-    products_text = f"🏪 <b>Магазин:</b> {account_name}\n"
-    products_text += f"📦 <b>Всего товаров:</b> {len(products)}\n\n"
-    products_text += "<b>Список товаров:</b>\n"
-
-    for i, product in enumerate(products, 1):
-        display_name = product.custom_name or product.supplier_article
-        products_text += f"{i}. <code>{product.supplier_article}</code> - {display_name}\n"
-
-        # Ограничиваем длину сообщения
-        if i % 20 == 0 and i < len(products):
-            # Добавляем продолжение
-            products_text += f"\n... и еще {len(products) - i} товаров"
-            break
-
-    # Создаем клавиатуру - сначала основное действие, потом навигация
-    builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="📝 Изменить название", callback_data="edit_product_name"))
-    builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="show_all_products"))
-    builder.adjust(1)  # Каждая кнопка на отдельной строке
-
-    await callback.message.edit_text(
-        products_text,
-        reply_markup=builder.as_markup(),
-        parse_mode="HTML"
-    )
-
 
 
 @products_settings_router.callback_query(F.data == "back_to_settings")
