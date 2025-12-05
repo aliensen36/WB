@@ -22,7 +22,7 @@ products_settings_router = Router()
 
 # Константы для пагинации
 ACCOUNTS_PER_PAGE = 5  # Максимальное количество магазинов на странице
-PRODUCTS_PER_PAGE = 10  # Максимальное количество товаров на странице
+PRODUCTS_PER_PAGE = 8  # Максимальное количество товаров на странице
 
 
 @products_settings_router.callback_query(F.data == "manage_products")

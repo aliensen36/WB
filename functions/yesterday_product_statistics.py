@@ -221,7 +221,6 @@ class YesterdayProductStatistics:
     async def get_yesterday_product_stats(self) -> Dict[str, any]:
         """
         Получить агрегированную статистику по товарам за вчера
-        С добавлением buyoutCount и buyoutSum
         """
         try:
             # Получаем данные
@@ -236,11 +235,8 @@ class YesterdayProductStatistics:
                     "total_carts": 0,
                     "total_orders": 0,
                     "total_order_sum": 0.0,
-                    "total_buyouts": 0,           # Добавлено
-                    "total_buyout_sum": 0.0,      # Добавлено
                     "active_products": 0,
                     "products_with_sales": 0,
-                    "products_with_buyouts": 0,   # Добавлено
                     "products": [],
                     "all_products": []
                 }
@@ -251,11 +247,8 @@ class YesterdayProductStatistics:
             total_carts = 0
             total_orders = 0
             total_order_sum = 0.0
-            total_buyouts = 0           # Добавлено
-            total_buyout_sum = 0.0      # Добавлено
             active_products = 0
             products_with_sales = 0
-            products_with_buyouts = 0   # Добавлено
 
             for item in all_data:
                 product = item.get("product", {})
@@ -272,20 +265,15 @@ class YesterdayProductStatistics:
                 carts = statistic.get("cartCount", 0)
                 orders = statistic.get("orderCount", 0)
                 order_sum = statistic.get("orderSum", 0)
-                buyouts = statistic.get("buyoutCount", 0)      # Добавлено
-                buyout_sum = statistic.get("buyoutSum", 0)     # Добавлено
 
                 # Проверяем активность
-                has_activity = views > 0 or carts > 0 or orders > 0 or buyouts > 0
+                has_activity = views > 0 or carts > 0 or orders > 0
                 has_sales = orders > 0
-                has_buyouts = buyouts > 0                      # Добавлено
 
                 if has_activity:
                     active_products += 1
                 if has_sales:
                     products_with_sales += 1
-                if has_buyouts:                                # Добавлено
-                    products_with_buyouts += 1
 
                 # Используем vendorCode или nmId как ключ
                 article = vendor_code if vendor_code else str(nm_id)
@@ -301,11 +289,8 @@ class YesterdayProductStatistics:
                         'carts': 0,
                         'orders': 0,
                         'order_sum': 0.0,
-                        'buyouts': 0,           # Добавлено
-                        'buyout_sum': 0.0,      # Добавлено
                         'conversion_to_cart': 0.0,
-                        'conversion_to_order': 0.0,
-                        'buyout_percent': 0.0   # Добавлено: процент выкупа
+                        'conversion_to_order': 0.0
                     }
 
                 # Обновляем статистику
@@ -313,30 +298,23 @@ class YesterdayProductStatistics:
                 product_stats[article]['carts'] += carts
                 product_stats[article]['orders'] += orders
                 product_stats[article]['order_sum'] += order_sum
-                product_stats[article]['buyouts'] += buyouts        # Добавлено
-                product_stats[article]['buyout_sum'] += buyout_sum  # Добавлено
 
                 # Рассчитываем конверсии
                 if views > 0:
                     product_stats[article]['conversion_to_cart'] = (carts / views) * 100
                 if carts > 0:
                     product_stats[article]['conversion_to_order'] = (orders / carts) * 100
-                # Рассчитываем процент выкупа
-                if orders > 0:
-                    product_stats[article]['buyout_percent'] = (buyouts / orders) * 100
 
                 # Общая статистика
                 total_views += views
                 total_carts += carts
                 total_orders += orders
                 total_order_sum += order_sum
-                total_buyouts += buyouts          # Добавлено
-                total_buyout_sum += buyout_sum    # Добавлено
 
-            # Сортируем товары по сумме выкупов (теперь у нас есть этот показатель)
+            # Сортируем товары по сумме заказов
             sorted_products = sorted(
                 product_stats.items(),
-                key=lambda x: x[1]['buyout_sum'],  # Сортировка по сумме выкупов
+                key=lambda x: x[1]['order_sum'],
                 reverse=True
             )
 
@@ -344,7 +322,7 @@ class YesterdayProductStatistics:
             formatted_products = []
             for article, stats in sorted_products:
                 # Пропускаем товары без продаж (если нужно)
-                if stats['buyout_sum'] == 0 and stats['order_sum'] == 0:
+                if stats['order_sum'] == 0:
                     continue
 
                 formatted_products.append({
@@ -357,9 +335,6 @@ class YesterdayProductStatistics:
                     'carts': stats['carts'],
                     'orders': stats['orders'],
                     'order_sum': stats['order_sum'],
-                    'buyouts': stats['buyouts'],          # Добавлено
-                    'buyout_sum': stats['buyout_sum'],    # Добавлено
-                    'buyout_percent': stats['buyout_percent'],  # Добавлено
                     'conversion_to_cart': stats['conversion_to_cart'],
                     'conversion_to_order': stats['conversion_to_order']
                 })
@@ -367,8 +342,6 @@ class YesterdayProductStatistics:
             logger.info(f"Обработано артикулов: {len(product_stats)}")
             logger.info(f"Товаров с активностью: {active_products}")
             logger.info(f"Товаров с продажами: {products_with_sales}")
-            logger.info(f"Товаров с выкупами: {products_with_buyouts}")
-            logger.info(f"Всего выкупов: {total_buyouts} шт. на {total_buyout_sum:.2f} руб.")
 
             return {
                 "date": date_str_dd_mm_yyyy,
@@ -377,18 +350,235 @@ class YesterdayProductStatistics:
                 "total_carts": total_carts,
                 "total_orders": total_orders,
                 "total_order_sum": total_order_sum,
-                "total_buyouts": total_buyouts,          # Добавлено
-                "total_buyout_sum": total_buyout_sum,    # Добавлено
                 "active_products": active_products,
                 "products_with_sales": products_with_sales,
-                "products_with_buyouts": products_with_buyouts,  # Добавлено
                 "products": formatted_products[:50],  # Топ 50 для отображения
                 "all_products": formatted_products,   # Все товары для сохранения в БД
                 "overall_cart_conversion": (total_carts / total_views * 100) if total_views > 0 else 0,
-                "overall_order_conversion": (total_orders / total_carts * 100) if total_carts > 0 else 0,
-                "overall_buyout_percent": (total_buyouts / total_orders * 100) if total_orders > 0 else 0  # Добавлено
+                "overall_order_conversion": (total_orders / total_carts * 100) if total_carts > 0 else 0
             }
 
         except Exception as e:
             logger.error(f"Ошибка при получении статистики по товарам: {e}")
+            raise
+
+    async def get_yesterday_sales_from_wb_api(self) -> Dict[str, any]:
+        """
+        Получить общее количество и сумму выкупов за вчерашний день
+        из API продаж WB (/api/v1/supplier/sales)
+
+        Returns:
+            Dict с общим количеством и суммой выкупов за вчера
+        """
+        try:
+            yesterday = datetime.now() - timedelta(days=1)
+            date_from = yesterday.strftime("%Y-%m-%d")
+
+            logger.info(f"Запрос продаж за вчера ({date_from}) из WB API")
+
+            # Используем statistics-api.wildberries.ru для продаж
+            sales_base_url = "https://statistics-api.wildberries.ru"
+            sales_headers = {
+                "Authorization": self.api_key.replace("Bearer ", ""),  # Убираем Bearer если есть
+                "Content-Type": "application/json"
+            }
+
+            params = {
+                "dateFrom": date_from,
+                "flag": 1  # flag=1 для получения всех данных за указанную дату
+            }
+
+            total_buyouts_quantity = 0
+            total_buyouts_amount = 0.0
+            all_sales_data = []
+            has_more_data = True
+
+            # Обрабатываем пагинацию если данных много
+            while has_more_data:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                            f"{sales_base_url}/api/v1/supplier/sales",
+                            headers=sales_headers,
+                            params=params,
+                            timeout=60
+                    ) as response:
+
+                        if response.status == 200:
+                            sales_data = await response.json()
+
+                            if not sales_data:
+                                logger.info("Нет больше данных о продажах")
+                                has_more_data = False
+                                break
+
+                            logger.info(f"Получено записей о продажах: {len(sales_data)}")
+                            all_sales_data.extend(sales_data)
+
+                            # Для пагинации: если данных 80к+, нужно делать следующий запрос
+                            if len(sales_data) >= 80000:
+                                # Берем последний lastChangeDate для следующего запроса
+                                last_item = sales_data[-1]
+                                last_change_date = last_item.get("lastChangeDate", "")
+
+                                if last_change_date:
+                                    # Обновляем dateFrom для следующего запроса
+                                    params["dateFrom"] = last_change_date
+                                    params["flag"] = 0  # Для пагинации используем flag=0
+                                    logger.info(f"Делаем следующий запрос с lastChangeDate: {last_change_date}")
+                                    await asyncio.sleep(1)  # Задержка между запросами
+                                    continue
+
+                            has_more_data = False
+
+                        elif response.status == 401:
+                            logger.error("Ошибка 401: Неверный API ключ для WB API")
+                            raise ValueError("Неверный API ключ для WB API")
+                        elif response.status == 429:
+                            logger.warning("Превышен лимит запросов к WB API")
+                            await asyncio.sleep(60)  # Ждем минуту
+                            continue
+                        else:
+                            error_text = await response.text()
+                            logger.error(f"Ошибка WB API продаж: {response.status}, текст: {error_text[:200]}")
+                            has_more_data = False
+
+            # Фильтруем только выкупы (isRealization = True) и считаем статистику
+            buyouts_data = []
+            for sale in all_sales_data:
+                # isRealization = True означает выкуп товара
+                if sale.get("isRealization", True):
+                    buyouts_data.append(sale)
+
+                    quantity = sale.get("quantity", 1)
+                    price_with_disc = float(sale.get("priceWithDisc", 0))
+
+                    total_buyouts_quantity += quantity
+                    total_buyouts_amount += price_with_disc * quantity
+
+            logger.info(
+                f"Выкупов за вчера из WB API: {len(buyouts_data)} записей, {total_buyouts_quantity} шт. на {total_buyouts_amount:.2f} руб.")
+
+            return {
+                "date": yesterday.strftime("%d.%m.%Y"),
+                "total_buyouts_quantity": total_buyouts_quantity,
+                "total_buyouts_amount": total_buyouts_amount,
+                "total_records": len(all_sales_data),
+                "buyout_records": len(buyouts_data),
+                "data_source": "WB API Sales"
+            }
+
+        except Exception as e:
+            logger.error(f"Ошибка получения выкупов из WB API за вчера: {e}")
+            # Возвращаем пустые данные в случае ошибки
+            return {
+                "date": (datetime.now() - timedelta(days=1)).strftime("%d.%m.%Y"),
+                "total_buyouts_quantity": 0,
+                "total_buyouts_amount": 0.0,
+                "total_records": 0,
+                "buyout_records": 0,
+                "data_source": "WB API Sales (ошибка)",
+                "error": str(e)
+            }
+
+    async def get_yesterday_sales_with_retry(self, max_retries: int = 3) -> Dict[str, any]:
+        """
+        Получить выкупы за вчера с повторными попытками
+        """
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Попытка получения выкупов за вчера (попытка {attempt + 1}/{max_retries})")
+                return await self.get_yesterday_sales_from_wb_api()
+
+            except ValueError as e:
+                error_msg = str(e)
+                if "Неверный API ключ" in error_msg:
+                    logger.error("Неверный API ключ для WB API")
+                    raise
+                last_error = error_msg
+
+            except Exception as e:
+                error_msg = str(e)
+                logger.warning(f"Ошибка при получении выкупов (попытка {attempt + 1}): {e}")
+                last_error = error_msg
+
+            # Ждем перед следующей попыткой
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 30
+                logger.info(f"Ждем {wait_time} секунд перед повторной попыткой")
+                await asyncio.sleep(wait_time)
+
+        # Если все попытки неудачны
+        raise ValueError(f"Не удалось получить данные о выкупах после {max_retries} попыток: {last_error}")
+
+    async def get_combined_yesterday_stats(self) -> Dict[str, any]:
+        """
+        Получить комбинированную статистику за вчера:
+        - из воронки продаж (по товарам)
+        - из API продаж WB (общие выкупы)
+        """
+        try:
+            # Получаем данные из воронки продаж асинхронно
+            funnel_stats_task = self.get_yesterday_product_stats()
+
+            # Получаем данные из API продаж асинхронно
+            sales_stats_task = self.get_yesterday_sales_with_retry(max_retries=2)
+
+            # Ждем завершения обоих задач
+            funnel_stats, sales_stats = await asyncio.gather(
+                funnel_stats_task,
+                sales_stats_task,
+                return_exceptions=True
+            )
+
+            # Обрабатываем результаты воронки продаж
+            if isinstance(funnel_stats, Exception):
+                logger.error(f"Ошибка получения данных из воронки продаж: {funnel_stats}")
+                funnel_data = {
+                    "date": (datetime.now() - timedelta(days=1)).strftime("%d.%m.%Y"),
+                    "total_products": 0,
+                    "total_orders": 0,
+                    "total_order_sum": 0.0,
+                    "products_with_sales": 0
+                }
+            else:
+                funnel_data = funnel_stats
+
+            # Обрабатываем результаты API продаж
+            if isinstance(sales_stats, Exception):
+                logger.error(f"Ошибка получения данных из API продаж: {sales_stats}")
+                sales_data = {
+                    "total_buyouts_quantity": 0,
+                    "total_buyouts_amount": 0.0,
+                    "data_source": "WB API Sales (ошибка)"
+                }
+            else:
+                sales_data = sales_stats
+
+            return {
+                "date": funnel_data.get("date", sales_data.get("date", "")),
+                "funnel_stats": {
+                    "total_products": funnel_data.get("total_products", 0),
+                    "total_orders": funnel_data.get("total_orders", 0),
+                    "total_order_sum": funnel_data.get("total_order_sum", 0.0),
+                    "products_with_sales": funnel_data.get("products_with_sales", 0)
+                },
+                "sales_stats": {
+                    "total_buyouts": sales_data.get("total_buyouts_quantity", 0),
+                    "total_buyout_sum": sales_data.get("total_buyouts_amount", 0.0),
+                    "total_records": sales_data.get("total_records", 0),
+                    "buyout_records": sales_data.get("buyout_records", 0),
+                    "data_source": sales_data.get("data_source", "")
+                },
+                "recommended_stats": {
+                    # Используем данные из API продаж для выкупов
+                    "total_buyouts": sales_data.get("total_buyouts_quantity", 0),
+                    "total_buyout_sum": sales_data.get("total_buyouts_amount", 0.0),
+                    "source": "WB API Sales"
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Ошибка получения комбинированной статистики: {e}")
             raise
