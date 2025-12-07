@@ -4,24 +4,16 @@ import logging
 from datetime import datetime, timedelta
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.account_manager import AccountManager
 from database.product_manager import ProductManager
 from functions.yesterday_product_statistics import YesterdayProductStatistics
 from keyboards.statistics_kb import get_stats_keyboard
+from storage.yesterday_statistics_storage import get_user_data, set_user_data
 
 logger = logging.getLogger(__name__)
 
 yesterday_product_statistics_router = Router()
-
-# Хранилище для данных пользователей (временное решение, лучше использовать Redis)
-user_data_store = {}
-
-
-# Состояния
-class StatisticsState(StatesGroup):
-    waiting = State()
 
 
 @yesterday_product_statistics_router.callback_query(F.data == "yesterday_stats")
@@ -62,7 +54,7 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
 
         # Инициализируем хранилище для пользователя
         user_id = callback.from_user.id
-        user_data_store[user_id] = {
+        user_data = {
             "account_index": 0,
             "store_index": 0,
             "current_page": {},
@@ -72,8 +64,11 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
             "date_str": date_str,
             "day_name": day_name,
             "successful_accounts": 0,
-            "failed_accounts": 0
+            "failed_accounts": 0,
+            "is_auto_report": False  # Это ручной запрос
         }
+
+        set_user_data(user_id, user_data, is_auto_report=False)
 
         # Обрабатываем каждый магазин
         stores_order = []
@@ -181,29 +176,31 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
                     "sales_stats": sales_stats,
                     "recommended_stats": recommended_stats,
                     "detailed_stats": detailed_stats,
-                    "total_views": detailed_stats.get("total_views", 0),
-                    "total_carts": detailed_stats.get("total_carts", 0),
-                    "overall_cart_conversion": detailed_stats.get("overall_cart_conversion", 0),
-                    "overall_order_conversion": detailed_stats.get("overall_order_conversion", 0),
+                    "total_views": detailed_stats.get("total_views", 0) if detailed_stats else 0,
+                    "total_carts": detailed_stats.get("total_carts", 0) if detailed_stats else 0,
+                    "overall_cart_conversion": detailed_stats.get("overall_cart_conversion",
+                                                                  0) if detailed_stats else 0,
+                    "overall_order_conversion": detailed_stats.get("overall_order_conversion",
+                                                                   0) if detailed_stats else 0,
                     "has_activity": len(products_with_activity) > 0
                 }
 
-                user_data_store[user_id]["store_data"][account_name] = store_data
+                user_data["store_data"][account_name] = store_data
                 stores_order.append(account_name)
 
                 # Обновляем счетчики
                 if funnel_stats.get("total_orders", 0) > 0 or recommended_stats.get("total_buyouts", 0) > 0:
                     successful_accounts += 1
-                    user_data_store[user_id]["successful_accounts"] = successful_accounts
+                    user_data["successful_accounts"] = successful_accounts
                 else:
                     failed_accounts += 1
-                    user_data_store[user_id]["failed_accounts"] = failed_accounts
+                    user_data["failed_accounts"] = failed_accounts
 
             except Exception as e:
                 error_message = str(e)
                 logger.error(f"[{account_name}] Ошибка при получении статистики: {error_message}")
                 failed_accounts += 1
-                user_data_store[user_id]["failed_accounts"] = failed_accounts
+                user_data["failed_accounts"] = failed_accounts
 
                 # Сохраняем информацию об ошибке
                 error_data = {
@@ -222,7 +219,7 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
                 else:
                     error_data["display_error"] = "Ошибка подключения к API"
 
-                user_data_store[user_id]["store_data"][account_name] = error_data
+                user_data["store_data"][account_name] = error_data
                 stores_order.append(account_name)
 
             # Задержка между запросами к разным магазинам
@@ -230,7 +227,11 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
                 await asyncio.sleep(5)
 
         # Сохраняем порядок магазинов
-        user_data_store[user_id]["stores_order"] = stores_order
+        user_data["stores_order"] = stores_order
+        user_data["successful_accounts"] = successful_accounts
+        user_data["failed_accounts"] = failed_accounts
+
+        set_user_data(user_id, user_data, is_auto_report=False)
 
         # Удаляем сообщение о загрузке
         try:
@@ -248,19 +249,20 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
         header_msg = await callback.message.answer(header_text)
 
         # Сохраняем ID сообщения с заголовком для возможного редактирования
-        user_data_store[user_id]["header_message_id"] = header_msg.message_id
+        user_data["header_message_id"] = header_msg.message_id
+        set_user_data(user_id, user_data, is_auto_report=False)
 
         # В ИЗМЕНЕННОМ ВАРИАНТЕ: ПОКАЗЫВАЕМ СНАЧАЛА ИТОГИ МАГАЗИНА
         if stores_order:
             first_store = stores_order[0]
-            store_data = user_data_store[user_id]["store_data"].get(first_store)
+            store_data = user_data["store_data"].get(first_store)
 
             if store_data.get("error", False):
                 # Показываем ошибку
-                await show_error_message(callback.message, user_id, first_store, store_data)
+                await show_error_message(callback.message, user_id, first_store, store_data, is_auto_report=False)
             else:
                 # ПОКАЗЫВАЕМ СНАЧАЛА ИТОГОВУЮ СТАТИСТИКУ МАГАЗИНА
-                await show_store_summary(callback.message, user_id, first_store, store_data)
+                await show_store_summary(callback.message, user_id, first_store, store_data, is_auto_report=False)
         else:
             await callback.message.answer("❌ Не удалось получить данные ни от одного магазина")
 
@@ -281,16 +283,24 @@ async def handle_yesterday_stats(callback: CallbackQuery, session: AsyncSession)
         )
 
 
-async def show_store_page(message: Message, user_id: int, store_name: str, page: int = 1, edit_message: Message = None):
+async def show_store_page(message: Message, user_id: int, store_name: str, page: int = 1,
+                          edit_message: Message = None, is_auto_report: bool = False):
     """Показывает страницу с товарами магазина (с замещением предыдущей)"""
 
-    if user_id not in user_data_store:
-        await message.answer("❌ Данные устарели. Запросите статистику заново.")
+    # Используем бота из объекта сообщения или callback
+    bot = message.bot if message else (edit_message.bot if edit_message else None)
+    if not bot:
+        logger.error("Не удалось получить экземпляр бота в show_store_page")
         return
 
-    store_data = user_data_store[user_id]["store_data"].get(store_name)
+    user_data = get_user_data(user_id, is_auto_report)
+    if not user_data:
+        await bot.send_message(user_id, "❌ Данные устарели. Запросите статистику заново.")
+        return
+
+    store_data = user_data.get("store_data", {}).get(store_name)
     if not store_data or store_data.get("error", False):
-        await message.answer(f"❌ Данные для магазина '{store_name}' не найдены или содержат ошибку.")
+        await bot.send_message(user_id, f"❌ Данные для магазина '{store_name}' не найдены или содержат ошибку.")
         return
 
     products_with_activity = store_data.get("products_with_activity", [])
@@ -305,10 +315,11 @@ async def show_store_page(message: Message, user_id: int, store_name: str, page:
     page = max(1, min(page, total_pages))
 
     # Сохраняем текущую страницу
-    user_data_store[user_id]["current_page"][store_name] = page
+    user_data["current_page"][store_name] = page
+    set_user_data(user_id, user_data, is_auto_report)
 
     # Определяем текущий индекс магазина в списке
-    stores_order = user_data_store[user_id]["stores_order"]
+    stores_order = user_data.get("stores_order", [])
     current_index = stores_order.index(store_name) if store_name in stores_order else -1
     total_stores = len(stores_order)
 
@@ -351,16 +362,25 @@ async def show_store_page(message: Message, user_id: int, store_name: str, page:
     text += f"Страница {page}/{total_pages} | Товары {start_idx + 1}-{end_idx} из {total_products}\n"
     text += f"Магазин {current_index + 1}/{total_stores}"
 
+    # Определяем префикс для callback-ов
+    prefix = "auto_" if is_auto_report else ""
+
     # Создаем клавиатуру
     keyboard = []
 
     # Кнопки навигации по страницам (только влево-вправо)
     nav_buttons = []
     if page > 1:
-        nav_buttons.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"page:{store_name}:{page - 1}"))
+        nav_buttons.append(InlineKeyboardButton(
+            text="◀️ Назад",
+            callback_data=f"{prefix}page:{store_name}:{page - 1}"
+        ))
 
     if page < total_pages:
-        nav_buttons.append(InlineKeyboardButton(text="Вперед ▶️", callback_data=f"page:{store_name}:{page + 1}"))
+        nav_buttons.append(InlineKeyboardButton(
+            text="Вперед ▶️",
+            callback_data=f"{prefix}page:{store_name}:{page + 1}"
+        ))
 
     if nav_buttons:
         keyboard.append(nav_buttons)
@@ -369,24 +389,30 @@ async def show_store_page(message: Message, user_id: int, store_name: str, page:
     store_nav_buttons = []
     if current_index > 0:
         prev_store = stores_order[current_index - 1]
-        store_nav_buttons.append(InlineKeyboardButton(text="⏪ Пред. магазин", callback_data=f"store:{prev_store}:1"))
+        store_nav_buttons.append(InlineKeyboardButton(
+            text="⏪ Пред. магазин",
+            callback_data=f"{prefix}store:{prev_store}:1"
+        ))
 
     # Кнопки действий
     action_buttons = []
-    action_buttons.append(InlineKeyboardButton(text="📊 Назад к итогам", callback_data=f"summary_back:{store_name}"))
+    action_buttons.append(InlineKeyboardButton(
+        text="📊 Назад к итогам",
+        callback_data=f"{prefix}summary_back:{store_name}"
+    ))
 
     if current_index >= 0 and current_index < total_stores - 1:
         next_store = stores_order[current_index + 1]
-        store_nav_buttons.append(InlineKeyboardButton(text="След. магазин ⏩", callback_data=f"store:{next_store}:1"))
+        store_nav_buttons.append(InlineKeyboardButton(
+            text="След. магазин ⏩",
+            callback_data=f"{prefix}store:{next_store}:1"
+        ))
 
     if store_nav_buttons:
         keyboard.append(store_nav_buttons)
 
     if action_buttons:
         keyboard.append(action_buttons)
-
-    # УБРАНА КНОПКА ВОЗВРАТА В МЕНЮ
-    # Больше не добавляем кнопку "🏠 В меню статистики"
 
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -396,24 +422,32 @@ async def show_store_page(message: Message, user_id: int, store_name: str, page:
             await edit_message.edit_text(text, reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Ошибка при редактировании сообщения: {e}")
-            # Если не удалось отредактировать, отправляем новое
-            await message.answer(text, reply_markup=reply_markup)
+            await bot.send_message(user_id, text, reply_markup=reply_markup)
     else:
-        await message.answer(text, reply_markup=reply_markup)
+        await bot.send_message(user_id, text, reply_markup=reply_markup)
 
 
 async def show_store_summary(message: Message, user_id: int, store_name: str, store_data: dict = None,
-                             edit_message: Message = None):
-    """Показывает итоговую статистику магазина (ТЕПЕРЬ ЭТО ПЕРВЫЙ ЭКРАН)"""
+                             edit_message: Message = None, is_auto_report: bool = False, bot=None):
+    """Показывает итоговую статистику магазина на первом экране"""
 
-    if user_id not in user_data_store:
-        await message.answer("❌ Данные устарели. Запросите статистику заново.")
+    # Если бот передан как аргумент - используем его, иначе получаем из сообщения
+    if not bot:
+        bot = message.bot if message else (edit_message.bot if edit_message else None)
+
+    if not bot:
+        logger.error("Не удалось получить экземпляр бота в show_store_summary")
+        return
+
+    user_data = get_user_data(user_id, is_auto_report)
+    if not user_data:
+        await bot.send_message(user_id, "❌ Данные устарели. Запросите статистику заново.")
         return
 
     if not store_data:
-        store_data = user_data_store[user_id]["store_data"].get(store_name)
+        store_data = user_data.get("store_data", {}).get(store_name)
         if not store_data:
-            await message.answer(f"❌ Данные для магазина '{store_name}' не найдены.")
+            await bot.send_message(user_id, f"❌ Данные для магазина '{store_name}' не найдены.")
             return
 
     # Извлекаем данные из комбинированной статистики
@@ -428,7 +462,7 @@ async def show_store_summary(message: Message, user_id: int, store_name: str, st
     total_buyout_sum_formatted = f"{total_buyout_sum:,.2f} ₽".replace(",", " ").replace(".", ",")
 
     # Определяем текущий индекс магазина в списке
-    stores_order = user_data_store[user_id]["stores_order"]
+    stores_order = user_data.get("stores_order", [])
     current_index = stores_order.index(store_name) if store_name in stores_order else -1
     total_stores = len(stores_order)
 
@@ -443,9 +477,6 @@ async def show_store_summary(message: Message, user_id: int, store_name: str, st
     # Блок с выкупами
     text += f"Выкупов: <b>{recommended_stats.get('total_buyouts', 0):,} шт.</b> на <b>{total_buyout_sum_formatted}</b>\n"
 
-    # УБРАН ПРОЦЕНТ ВЫКУПА
-    # Убрана строка: "Процент выкупа: <b>{buyout_percent:.1f}%</b>\n"
-
     # Общая статистика
     text += f"Всего товаров: {funnel_stats.get('total_products', 0):,}\n"
     text += f"Всего просмотров: {store_data.get('total_views', 0):,}\n"
@@ -455,6 +486,9 @@ async def show_store_summary(message: Message, user_id: int, store_name: str, st
     # Добавляем информацию о магазине в конец сообщения
     text += f"Магазин {current_index + 1}/{total_stores}"
 
+    # Определяем префикс для callback-ов
+    prefix = "auto_" if is_auto_report else ""
+
     # Создаем клавиатуру
     keyboard = []
 
@@ -462,25 +496,31 @@ async def show_store_summary(message: Message, user_id: int, store_name: str, st
     nav_buttons = []
     if current_index > 0:
         prev_store = stores_order[current_index - 1]
-        nav_buttons.append(InlineKeyboardButton(text="⏪ Пред. магазин", callback_data=f"store:{prev_store}:1"))
+        nav_buttons.append(InlineKeyboardButton(
+            text="⏪ Пред. магазин",
+            callback_data=f"{prefix}store:{prev_store}:1"
+        ))
 
     # Кнопки действий
     action_buttons = []
     if store_data.get("has_activity", False):
-        action_buttons.append(InlineKeyboardButton(text="📦 К товарам", callback_data=f"store_products:{store_name}:1"))
+        action_buttons.append(InlineKeyboardButton(
+            text="📦 К товарам",
+            callback_data=f"{prefix}store_products:{store_name}:1"
+        ))
 
     if current_index >= 0 and current_index < total_stores - 1:
         next_store = stores_order[current_index + 1]
-        nav_buttons.append(InlineKeyboardButton(text="След. магазин ⏩", callback_data=f"store:{next_store}:1"))
+        nav_buttons.append(InlineKeyboardButton(
+            text="След. магазин ⏩",
+            callback_data=f"{prefix}store:{next_store}:1"
+        ))
 
     if nav_buttons:
         keyboard.append(nav_buttons)
 
     if action_buttons:
         keyboard.append(action_buttons)
-
-    # УБРАНА КНОПКА ВОЗВРАТА В МЕНЮ
-    # Больше не добавляем кнопку "🏠 В меню статистики"
 
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -490,20 +530,33 @@ async def show_store_summary(message: Message, user_id: int, store_name: str, st
             await edit_message.edit_text(text, reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Ошибка при редактировании сообщения: {e}")
-            await message.answer(text, reply_markup=reply_markup)
+            await bot.send_message(user_id, text, reply_markup=reply_markup)
     else:
-        await message.answer(text, reply_markup=reply_markup)
+        await bot.send_message(user_id, text, reply_markup=reply_markup)
 
 
 async def show_error_message(message: Message, user_id: int, store_name: str, store_data: dict,
-                             edit_message: Message = None):
+                             edit_message: Message = None, is_auto_report: bool = False, bot=None):
     """Показывает сообщение об ошибке для магазина"""
+
+    # Если бот передан как аргумент - используем его, иначе получаем из сообщения
+    if not bot:
+        bot = message.bot if message else (edit_message.bot if edit_message else None)
+
+    if not bot:
+        logger.error("Не удалось получить экземпляр бота в show_error_message")
+        return
+
+    user_data = get_user_data(user_id, is_auto_report)
+    if not user_data:
+        await bot.send_message(user_id, "❌ Данные устарели. Запросите статистику заново.")
+        return
 
     error_message = store_data.get("error_message", "Неизвестная ошибка")
     display_error = store_data.get("display_error", "Ошибка подключения")
 
     # Определяем текущий индекс магазина в списке
-    stores_order = user_data_store[user_id]["stores_order"]
+    stores_order = user_data.get("stores_order", [])
     current_index = stores_order.index(store_name) if store_name in stores_order else -1
     total_stores = len(stores_order)
 
@@ -512,6 +565,9 @@ async def show_error_message(message: Message, user_id: int, store_name: str, st
     text += f"<b>ОШИБКА:</b> {display_error}\n"
     text += f"<i>Детали: {error_message[:100]}...</i>\n\n"
 
+    # Определяем префикс для callback-ов
+    prefix = "auto_" if is_auto_report else ""
+
     # Создаем клавиатуру
     keyboard = []
 
@@ -519,17 +575,20 @@ async def show_error_message(message: Message, user_id: int, store_name: str, st
     nav_buttons = []
     if current_index > 0:
         prev_store = stores_order[current_index - 1]
-        nav_buttons.append(InlineKeyboardButton(text="⏪ Пред. магазин", callback_data=f"store:{prev_store}:1"))
+        nav_buttons.append(InlineKeyboardButton(
+            text="⏪ Пред. магазин",
+            callback_data=f"{prefix}store:{prev_store}:1"
+        ))
 
     if current_index >= 0 and current_index < total_stores - 1:
         next_store = stores_order[current_index + 1]
-        nav_buttons.append(InlineKeyboardButton(text="След. магазин ⏩", callback_data=f"store:{next_store}:1"))
+        nav_buttons.append(InlineKeyboardButton(
+            text="След. магазин ⏩",
+            callback_data=f"{prefix}store:{next_store}:1"
+        ))
 
     if nav_buttons:
         keyboard.append(nav_buttons)
-
-    # УБРАНА КНОПКА ВОЗВРАТА В МЕНЮ
-    # Больше не добавляем кнопку "🏠 В меню статистики"
 
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -539,113 +598,141 @@ async def show_error_message(message: Message, user_id: int, store_name: str, st
             await edit_message.edit_text(text, reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Ошибка при редактировании сообщения: {e}")
-            await message.answer(text, reply_markup=reply_markup)
+            await bot.send_message(user_id, text, reply_markup=reply_markup)
     else:
-        await message.answer(text, reply_markup=reply_markup)
+        await bot.send_message(user_id, text, reply_markup=reply_markup)
 
 
-@yesterday_product_statistics_router.callback_query(F.data.startswith("page:"))
-async def handle_page_navigation(callback: CallbackQuery):
-    """Обработка перехода по страницам товаров"""
-
+# Общие обработчики callback-ов
+async def handle_callback_navigation(callback: CallbackQuery, prefix: str = ""):
+    """Общий обработчик навигации"""
     await callback.answer()
 
     try:
-        _, store_name, page_str = callback.data.split(":")
-        page = int(page_str)
-        user_id = callback.from_user.id
+        data = callback.data.replace(prefix, "") if prefix else callback.data
 
-        # Показываем указанную страницу с замещением текущего сообщения
-        await show_store_page(callback.message, user_id, store_name, page, callback.message)
+        if data.startswith("page:"):
+            _, store_name, page_str = data.split(":")
+            page = int(page_str)
+            user_id = callback.from_user.id
+            is_auto_report = prefix == "auto_"
+
+            # Используем bot из callback
+            await show_store_page(callback.message, user_id, store_name, page,
+                                  callback.message, is_auto_report)
+
+        elif data.startswith("store:"):
+            _, store_name, page_str = data.split(":")
+            page = int(page_str)
+            user_id = callback.from_user.id
+            is_auto_report = prefix == "auto_"
+
+            user_data = get_user_data(user_id, is_auto_report)
+            store_data = user_data.get("store_data", {}).get(store_name) if user_data else None
+
+            if not store_data:
+                await callback.answer("❌ Данные магазина не найдены")
+                return
+
+            if store_data.get("error", False):
+                await show_error_message(callback.message, user_id, store_name,
+                                         store_data, callback.message, is_auto_report)
+            else:
+                await show_store_summary(callback.message, user_id, store_name,
+                                         store_data, callback.message, is_auto_report)
+
+        elif data.startswith("store_products:"):
+            _, store_name, page_str = data.split(":")
+            page = int(page_str)
+            user_id = callback.from_user.id
+            is_auto_report = prefix == "auto_"
+
+            user_data = get_user_data(user_id, is_auto_report)
+            store_data = user_data.get("store_data", {}).get(store_name) if user_data else None
+
+            if not store_data:
+                await callback.answer("❌ Данные магазина не найдены")
+                return
+
+            if store_data.get("error", False):
+                await callback.answer("❌ Для этого магазина есть только информация об ошибке")
+                return
+
+            await show_store_page(callback.message, user_id, store_name, page,
+                                  callback.message, is_auto_report)
+
+        elif data.startswith("summary_back:"):
+            _, store_name = data.split(":")
+            user_id = callback.from_user.id
+            is_auto_report = prefix == "auto_"
+
+            user_data = get_user_data(user_id, is_auto_report)
+            store_data = user_data.get("store_data", {}).get(store_name) if user_data else None
+
+            if not store_data:
+                await callback.answer("❌ Данные магазина не найдены")
+                return
+
+            if store_data.get("error", False):
+                await callback.answer("❌ Для этого магазина есть только информация об ошибке")
+                return
+
+            await show_store_summary(callback.message, user_id, store_name,
+                                     store_data, callback.message, is_auto_report)
+
     except Exception as e:
-        logger.error(f"Ошибка при обработке навигации по страницам: {e}")
-        await callback.answer("❌ Ошибка при переключении страницы")
+        logger.error(f"Ошибка при обработке навигации: {e}")
+        await callback.answer("❌ Ошибка при обработке запроса")
+
+
+# Обработчики для ручных запросов (без префикса)
+@yesterday_product_statistics_router.callback_query(F.data.startswith("page:"))
+async def handle_page_navigation(callback: CallbackQuery):
+    """Обработка перехода по страницам товаров"""
+    await handle_callback_navigation(callback, prefix="")
 
 
 @yesterday_product_statistics_router.callback_query(F.data.startswith("store:"))
 async def handle_store_navigation(callback: CallbackQuery):
     """Обработка перехода между магазинами (ПОКАЗЫВАЕТ ИТОГИ)"""
-
-    await callback.answer()
-
-    try:
-        _, store_name, page_str = callback.data.split(":")
-        page = int(page_str)
-        user_id = callback.from_user.id
-
-        store_data = user_data_store.get(user_id, {}).get("store_data", {}).get(store_name)
-
-        if not store_data:
-            await callback.answer("❌ Данные магазина не найдены")
-            return
-
-        if store_data.get("error", False):
-            # Показываем ошибку
-            await show_error_message(callback.message, user_id, store_name, store_data, callback.message)
-        else:
-            # ПОКАЗЫВАЕМ СНАЧАЛА ИТОГИ МАГАЗИНА
-            await show_store_summary(callback.message, user_id, store_name, store_data, callback.message)
-
-    except Exception as e:
-        logger.error(f"Ошибка при обработке навигации по магазинам: {e}")
-        await callback.answer("❌ Ошибка при переключении магазина")
+    await handle_callback_navigation(callback, prefix="")
 
 
 @yesterday_product_statistics_router.callback_query(F.data.startswith("store_products:"))
 async def handle_store_products_view(callback: CallbackQuery):
     """Обработка перехода к товарам магазина"""
-
-    await callback.answer()
-
-    try:
-        _, store_name, page_str = callback.data.split(":")
-        page = int(page_str)
-        user_id = callback.from_user.id
-
-        store_data = user_data_store.get(user_id, {}).get("store_data", {}).get(store_name)
-
-        if not store_data:
-            await callback.answer("❌ Данные магазина не найдены")
-            return
-
-        if store_data.get("error", False):
-            await callback.answer("❌ Для этого магазина есть только информация об ошибке")
-            return
-
-        # Показываем первую страницу товаров
-        await show_store_page(callback.message, user_id, store_name, page, callback.message)
-
-    except Exception as e:
-        logger.error(f"Ошибка при обработке перехода к товарам: {e}")
-        await callback.answer("❌ Ошибка при отображении товаров")
+    await handle_callback_navigation(callback, prefix="")
 
 
 @yesterday_product_statistics_router.callback_query(F.data.startswith("summary_back:"))
 async def handle_summary_back_view(callback: CallbackQuery):
     """Обработка возврата к итогам магазина из просмотра товаров"""
+    await handle_callback_navigation(callback, prefix="")
 
-    await callback.answer()
 
-    try:
-        _, store_name = callback.data.split(":")
-        user_id = callback.from_user.id
+# Обработчики для автоотчетов (с префиксом auto_)
+@yesterday_product_statistics_router.callback_query(F.data.startswith("auto_page:"))
+async def handle_auto_page_navigation(callback: CallbackQuery):
+    """Обработка перехода по страницам товаров в автоотчетах"""
+    await handle_callback_navigation(callback, prefix="auto_")
 
-        store_data = user_data_store.get(user_id, {}).get("store_data", {}).get(store_name)
 
-        if not store_data:
-            await callback.answer("❌ Данные магазина не найдены")
-            return
+@yesterday_product_statistics_router.callback_query(F.data.startswith("auto_store:"))
+async def handle_auto_store_navigation(callback: CallbackQuery):
+    """Обработка перехода между магазинами в автоотчетах (ПОКАЗЫВАЕТ ИТОГИ)"""
+    await handle_callback_navigation(callback, prefix="auto_")
 
-        if store_data.get("error", False):
-            await callback.answer("❌ Для этого магазина есть только информация об ошибке")
-            return
 
-        # Показываем итоговую статистику с замещением текущего сообщения
-        await show_store_summary(callback.message, user_id, store_name, store_data, callback.message)
+@yesterday_product_statistics_router.callback_query(F.data.startswith("auto_store_products:"))
+async def handle_auto_store_products_view(callback: CallbackQuery):
+    """Обработка перехода к товарам магазина в автоотчетах"""
+    await handle_callback_navigation(callback, prefix="auto_")
 
-    except Exception as e:
-        logger.error(f"Ошибка при обработке возврата к итогам: {e}")
-        await callback.answer("❌ Ошибка при отображении статистики")
+
+@yesterday_product_statistics_router.callback_query(F.data.startswith("auto_summary_back:"))
+async def handle_auto_summary_back_view(callback: CallbackQuery):
+    """Обработка возврата к итогам магазина из просмотра товаров в автоотчетах"""
+    await handle_callback_navigation(callback, prefix="auto_")
 
 
 # Обработчики для старых функций (для совместимости)

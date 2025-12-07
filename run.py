@@ -12,6 +12,7 @@ from config import config
 from database.engine import drop_db, create_db, session_maker
 from functions.current_statistics_scheduler import CurrentStatisticsScheduler
 from functions.set_bot_commands import set_bot_commands
+from functions.yesterday_product_statistics_scheduler import YesterdayProductStatisticsScheduler
 from handlers.accounts_settings_handlers import accounts_settings_router
 from handlers.current_statistics_handlers import current_statistics_router
 from handlers.products_settings_handlers import products_settings_router
@@ -52,10 +53,38 @@ dp.include_router(current_statistics_router)
 dp.include_router(accounts_settings_router)
 dp.include_router(products_settings_router)
 
+# Создаем планировщики
+current_scheduler = None
+yesterday_scheduler = None
 
 
-# Создаем планировщик
-scheduler = CurrentStatisticsScheduler(bot, session_maker, admin_chat_id=config.ADMIN_CHAT_ID)
+async def start_schedulers():
+    """Запуск планировщиков отчетов"""
+    global current_scheduler, yesterday_scheduler
+
+    logger.info("Запускаю планировщики отчетов...")
+
+    try:
+        # Создаем планировщики
+        current_scheduler = CurrentStatisticsScheduler(
+            bot,
+            session_maker,
+            admin_chat_id=config.ADMIN_CHAT_ID
+        )
+        yesterday_scheduler = YesterdayProductStatisticsScheduler(
+            bot,
+            session_maker,
+            admin_chat_id=config.ADMIN_CHAT_ID
+        )
+
+        # Запускаем планировщики в фоновом режиме
+        asyncio.create_task(current_scheduler.start_scheduler())
+        asyncio.create_task(yesterday_scheduler.start_scheduler())
+
+        logger.info("Планировщики отчетов запущены")
+
+    except Exception as e:
+        logger.error(f"Ошибка при запуске планировщиков: {e}")
 
 
 async def run_alembic_migrations():
@@ -153,13 +182,8 @@ async def on_startup(bot):
     except Exception as e:
         logger.error(f"Ошибка при установке команд: {e}")
 
-    # 4. Запускаем планировщик отчетов
-    logger.info("Запускаю планировщик отчетов...")
-    try:
-        asyncio.create_task(scheduler.start_scheduler())
-        logger.info("Планировщик отчетов запущен")
-    except Exception as e:
-        logger.error(f"Ошибка при запуске планировщика: {e}")
+    # 4. Запускаем планировщики отчетов
+    await start_schedulers()
 
     # 5. Выводим информацию о боте
     bot_info = await bot.get_me()
