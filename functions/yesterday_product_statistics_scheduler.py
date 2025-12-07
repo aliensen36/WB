@@ -362,27 +362,23 @@ class YesterdayProductStatisticsScheduler:
         logger.info(f"Отчеты будут приходить в личные чаты администраторов из группы (ID: {self.admin_chat_id})")
         logger.info(f"Используется временная зона: {self.moscow_tz}")
 
-        # ВРЕМЕННО ДЛЯ ТЕСТИРОВАНИЯ - изменить на удобное время
-        # Например, через 2 минуты от текущего времени
-        test_time_add_minutes = 2
-        now = self.get_moscow_time()
-        test_time = now + timedelta(minutes=test_time_add_minutes)
-        target_hour = test_time.hour
-        target_minute = test_time.minute
+        # Установка времени для отправки отчетов (07:00 МСК)
+        target_hour = 7
+        target_minute = 0
 
-        logger.warning(f"ТЕСТОВЫЙ РЕЖИМ! Автоотчет будет отправлен в {target_hour:02d}:{target_minute:02d} МСК")
-        logger.warning(f"Текущее время: {now.strftime('%H:%M:%S')}, отчет через {test_time_add_minutes} минут")
+        logger.info(f"Автоотчет будет отправляться каждый день в {target_hour:02d}:{target_minute:02d} МСК")
 
         while True:
             # Используем московское время для проверки
             now = self.get_moscow_time()
 
-            # Логируем текущее время для отладки
-            logger.debug(f"Текущее московское время: {now.strftime('%H:%M:%S')}")
+            # Логируем текущее время для отладки (раз в час)
+            if now.minute == 0:
+                logger.debug(f"Текущее московское время: {now.strftime('%H:%M:%S')}")
 
             # Проверяем время отправки автоотчета за вчера
             if now.hour == target_hour and now.minute == target_minute:
-                scheduled_time = f"{target_hour:02d}:{target_minute:02d} МСК (ТЕСТ)"
+                scheduled_time = f"{target_hour:02d}:{target_minute:02d} МСК"
 
                 logger.info(f"Время автоотчета за вчера: {scheduled_time}")
                 logger.info(f"Текущее серверное время UTC: {datetime.utcnow().strftime('%H:%M:%S')}")
@@ -391,11 +387,6 @@ class YesterdayProductStatisticsScheduler:
                 try:
                     await self.send_yesterday_auto_reports()
                     logger.info(f"Автоотчет за вчера {scheduled_time} обработан")
-
-                    # После теста меняем на рабочее время
-                    logger.info("Тест завершен. Переключаюсь на рабочее время 07:00")
-                    target_hour = 7
-                    target_minute = 0
 
                 except Exception as e:
                     logger.error(f"Ошибка при обработке автоотчета за вчера {scheduled_time}: {e}")
