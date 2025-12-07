@@ -354,9 +354,10 @@ async def show_store_page(message: Message, user_id: int, store_name: str, page:
 
         # Добавляем товар
         text += f"<b>{i}. ({article}) {display_name}</b>\n"
-        text += f"Просмотров: {views_formatted}   В корзине: {carts_formatted}\n"
-        text += f"Конверсия: в корзину {product.get('conversion_to_cart', 0):.1f}%, в заказ: {product.get('conversion_to_order', 0):.1f}%\n"
-        text += f"<b>Заказы: {orders_formatted} шт. на {order_sum_formatted}</b>\n\n"
+        text += f"Заказы: <b>{orders_formatted}</b> шт. на <b>{order_sum_formatted}</b>\n"
+        text += f"<i>Просмотров: {views_formatted}  |  В корзине: {carts_formatted}</i>\n"
+        text += f"<i>Конверсия: в корзину {product.get('conversion_to_cart', 0):.1f}%, в заказ: {product.get('conversion_to_order', 0):.1f}%</i>\n\n"
+
 
     # Добавляем информацию о странице в конец сообщения
     text += f"Страница {page}/{total_pages} | Товары {start_idx + 1}-{end_idx} из {total_products}\n"
