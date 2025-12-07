@@ -1,4 +1,4 @@
-# functions/scheduler.py
+# functions/current_statistics_scheduler.py
 import asyncio
 from aiogram import Bot
 from aiogram.types import ChatMemberAdministrator, ChatMemberOwner
@@ -12,7 +12,7 @@ from functions.current_statistics import CurrentStatistics
 logger = logging.getLogger(__name__)
 
 
-class StatisticsScheduler:
+class CurrentStatisticsScheduler:
     def __init__(self, bot: Bot, session_maker, admin_chat_id: int):
         self.bot = bot
         self.session_maker = session_maker

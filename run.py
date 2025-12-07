@@ -10,7 +10,7 @@ from aiogram.enums import ParseMode
 from dotenv import load_dotenv
 from config import config
 from database.engine import drop_db, create_db, session_maker
-from functions.scheduler import StatisticsScheduler
+from functions.current_statistics_scheduler import CurrentStatisticsScheduler
 from functions.set_bot_commands import set_bot_commands
 from handlers.accounts_settings_handlers import accounts_settings_router
 from handlers.current_statistics_handlers import current_statistics_router
@@ -55,7 +55,7 @@ dp.include_router(products_settings_router)
 
 
 # Создаем планировщик
-scheduler = StatisticsScheduler(bot, session_maker, admin_chat_id=config.ADMIN_CHAT_ID)
+scheduler = CurrentStatisticsScheduler(bot, session_maker, admin_chat_id=config.ADMIN_CHAT_ID)
 
 
 async def run_alembic_migrations():

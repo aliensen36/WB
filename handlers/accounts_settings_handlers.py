@@ -210,14 +210,14 @@ async def edit_shop_callback(callback: CallbackQuery, session: AsyncSession):
     for account in all_accounts:
         account_name = account.account_name or f"Магазин {account.id}"
         builder.add(InlineKeyboardButton(
-            text=f"✏️ {account_name}",
+            text=f" {account_name}",
             callback_data=f"edit_account_{account.id}"
         ))
     builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="manage_shops"))
     builder.adjust(1)
 
     await callback.message.edit_text(
-        "<b>Выберите магазин для изменения названия:</b>",
+        "Выберите магазин для изменения названия:",
         reply_markup=builder.as_markup()
     )
 
@@ -266,8 +266,7 @@ async def process_new_account_name(message: Message, state: FSMContext, session:
         await message.answer(
             "❌ <b>Слишком короткое название</b>\n\n"
             "Название магазина должно содержать хотя бы 2 символа.\n"
-            "Пожалуйста, введите новое название:",
-            parse_mode="HTML"
+            "Пожалуйста, введите новое название:"
         )
         return
 
@@ -275,8 +274,7 @@ async def process_new_account_name(message: Message, state: FSMContext, session:
         await message.answer(
             "❌ <b>Слишком длинное название</b>\n\n"
             "Название магазина не должно превышать 100 символов.\n"
-            "Пожалуйста, введите более короткое название:",
-            parse_mode="HTML"
+            "Пожалуйста, введите более короткое название:"
         )
         return
 
@@ -287,8 +285,7 @@ async def process_new_account_name(message: Message, state: FSMContext, session:
     if not account_id:
         await message.answer(
             "❌ <b>Ошибка данных</b>\n\n"
-            "Не удалось определить магазин для редактирования.",
-            parse_mode="HTML"
+            "Не удалось определить магазин для редактирования."
         )
         await state.clear()
         return
@@ -304,16 +301,14 @@ async def process_new_account_name(message: Message, state: FSMContext, session:
             f"✅ <b>Название изменено</b>\n\n"
             f"Магазин успешно переименован в:\n"
             f"<b>«{new_name}»</b>",
-            reply_markup=builder.as_markup(),
-            parse_mode="HTML"
+            reply_markup=builder.as_markup()
         )
     else:
         await message.answer(
             "❌ <b>Ошибка изменения</b>\n\n"
             "Не удалось изменить название магазина.\n"
             "Возможно, магазин был удален.",
-            reply_markup=get_settings_keyboard(),
-            parse_mode="HTML"
+            reply_markup=get_settings_keyboard()
         )
 
     # Очищаем состояние
@@ -344,7 +339,7 @@ async def delete_shop_callback(callback: CallbackQuery, session: AsyncSession):
     builder.adjust(1)
 
     await callback.message.edit_text(
-        "<b>Выберите магазин для удаления:</b>",
+        "Выберите магазин для удаления:",
         reply_markup=builder.as_markup()
     )
 
@@ -375,8 +370,7 @@ async def confirm_delete_account(callback: CallbackQuery, session: AsyncSession)
         f"Вы действительно хотите удалить магазин:\n"
         f"<b>{account_name}</b>\n\n"
         f"<i>Это действие нельзя отменить!</i>",
-        reply_markup=builder.as_markup(),
-        parse_mode="HTML"
+        reply_markup=builder.as_markup()
     )
 
 
@@ -427,8 +421,7 @@ async def execute_delete_account(callback: CallbackQuery, session: AsyncSession)
             f"❌ <b>Ошибка при удалении магазина</b>\n\n"
             f"Не удалось удалить магазин <b>{account_name}</b>.\n"
             f"Попробуйте позже.",
-            reply_markup=get_shops_management_keyboard(),
-            parse_mode="HTML"
+            reply_markup=get_shops_management_keyboard()
         )
 
 
